@@ -83,6 +83,13 @@ public interface IStoreRepository : IRepository
 
     Task AddOrderAsync(StoreOrder order, CancellationToken ct = default);
     Task UpdateOrderAsync(StoreOrder order, CancellationToken ct = default);
+    Task UpdateOrdersAsync(IReadOnlyList<StoreOrder> orders, CancellationToken ct = default);
+    /// <summary>
+    /// Returns every open <see cref="StoreOrder"/> that has at least one line for
+    /// <paramref name="productId"/>, with <c>Lines</c> and <c>Payments</c> eager-loaded.
+    /// Used to refresh price snapshots when a product's pricing changes.
+    /// </summary>
+    Task<IReadOnlyList<StoreOrder>> GetOpenOrdersWithLinesByProductIdAsync(Guid productId, CancellationToken ct = default);
     /// <summary>
     /// Hard-deletes the order. Cascade FKs remove its lines and payments. The
     /// service is responsible for enforcing balance/state preconditions.

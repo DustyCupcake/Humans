@@ -191,6 +191,11 @@ public class StoreService(
         var product = await repo.GetProductByIdAsync(draft.Id, ct)
             ?? throw new InvalidOperationException($"Product {draft.Id} not found");
 
+        var pricingChanged =
+            product.UnitPriceEur != draft.UnitPriceEur ||
+            product.VatRatePercent != draft.VatRatePercent ||
+            product.DepositAmountEur != draft.DepositAmountEur;
+
         product.Year = draft.Year;
         product.Name = draft.Name.Trim();
         product.Description = draft.Description;
@@ -202,9 +207,39 @@ public class StoreService(
         product.UpdatedAt = clock.GetCurrentInstant();
 
         await repo.UpdateProductAsync(product, ct);
+
+        if (pricingChanged)
+            await RefreshOpenOrderLineSnapshotsAsync(product, actorUserId, ct);
+
         await audit.LogAsync(
             AuditAction.StoreProductUpdated, nameof(StoreProduct), product.Id,
             $"Updated store product '{product.Name}'",
+            actorUserId);
+    }
+
+    private async Task RefreshOpenOrderLineSnapshotsAsync(StoreProduct product, Guid actorUserId, CancellationToken ct)
+    {
+        var orders = await repo.GetOpenOrdersWithLinesByProductIdAsync(product.Id, ct);
+        if (orders.Count == 0) return;
+
+        var now = clock.GetCurrentInstant();
+        foreach (var order in orders)
+        {
+            foreach (var line in order.Lines.Where(l => l.ProductId == product.Id))
+            {
+                line.UnitPriceSnapshot = product.UnitPriceEur;
+                line.VatRateSnapshot = product.VatRatePercent;
+                line.DepositAmountSnapshot = product.DepositAmountEur;
+            }
+            order.PricesLastRefreshedAt = now;
+            order.UpdatedAt = now;
+        }
+
+        await repo.UpdateOrdersAsync(orders, ct);
+
+        await audit.LogAsync(
+            AuditAction.StoreProductUpdated, nameof(StoreProduct), product.Id,
+            $"Refreshed price snapshots on {orders.Count} open order(s) after pricing change on '{product.Name}'",
             actorUserId);
     }
 
@@ -867,7 +902,8 @@ public class StoreService(
             o.IssuedInvoiceId,
             lines,
             balance.LinesSubtotalEur, balance.VatTotalEur, balance.DepositTotalEur,
-            balance.PaymentsTotalEur, balance.BalanceEur);
+            balance.PaymentsTotalEur, balance.BalanceEur,
+            o.PricesLastRefreshedAt);
     }
 
     private async Task<string> ResolveCounterpartyDisplayNameAsync(StoreOrder o, CancellationToken ct)

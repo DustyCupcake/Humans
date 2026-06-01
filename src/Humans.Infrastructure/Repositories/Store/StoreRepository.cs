@@ -1,5 +1,6 @@
 using Humans.Application.Interfaces.Repositories;
 using Humans.Domain.Entities;
+using Humans.Domain.Enums;
 using Humans.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -204,6 +205,23 @@ internal sealed class StoreRepository(IDbContextFactory<HumansDbContext> factory
                     lo.Line.Id, lo.Order.Id, lo.Order.CampSeasonId, lo.Order.State, p.OrderableUntil))
             .FirstOrDefaultAsync(ct);
         return row;
+    }
+
+    public async Task<IReadOnlyList<StoreOrder>> GetOpenOrdersWithLinesByProductIdAsync(Guid productId, CancellationToken ct = default)
+    {
+        await using var ctx = await factory.CreateDbContextAsync(ct);
+        return await ctx.StoreOrders
+            .Include(o => o.Lines)
+            .Include(o => o.Payments)
+            .Where(o => o.State == StoreOrderState.Open && o.Lines.Any(l => l.ProductId == productId))
+            .ToListAsync(ct);
+    }
+
+    public async Task UpdateOrdersAsync(IReadOnlyList<StoreOrder> orders, CancellationToken ct = default)
+    {
+        await using var ctx = await factory.CreateDbContextAsync(ct);
+        ctx.StoreOrders.UpdateRange(orders);
+        await ctx.SaveChangesAsync(ct);
     }
 
     // ==========================================================================

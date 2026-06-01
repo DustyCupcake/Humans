@@ -47,6 +47,12 @@ public class StoreOrder
     public Instant CreatedAt { get; set; }
     public Instant UpdatedAt { get; set; }
 
+    /// <summary>
+    /// Set when a product price/VAT/deposit change refreshes snapshots on open lines.
+    /// Displayed as a banner on the order page.
+    /// </summary>
+    public Instant? PricesLastRefreshedAt { get; set; }
+
     public ICollection<StoreOrderLine> Lines { get; set; } = new List<StoreOrderLine>();
     public ICollection<StorePayment> Payments { get; set; } = new List<StorePayment>();
 }

@@ -1,4 +1,6 @@
 @using Humans.Domain.Enums
+@using NodaTime
+@using NodaTime.TimeZones
 @model Humans.Web.Models.StoreOrderViewModel
 @{
     ViewData["Title"] = $"Store order — {Model.CounterpartyDisplayName}";
@@ -33,6 +35,21 @@
 </div>
 
 <vc:temp-data-alerts />
+
+@if (order.PricesLastRefreshedAt.HasValue)
+{
+    var refreshedAt = order.PricesLastRefreshedAt.Value
+        .InZone(DateTimeZoneProviders.Tzdb["Europe/Madrid"])
+        .ToDateTimeOffset();
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <i class="fa-solid fa-rotate me-2"></i>
+        <strong>Prices updated.</strong>
+        One or more product prices changed and your order lines were updated automatically
+        on @refreshedAt.ToString("d MMM yyyy") at @refreshedAt.ToString("HH:mm").
+        Review your totals below.
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
 
 @if (!isTeamOrder)
 {

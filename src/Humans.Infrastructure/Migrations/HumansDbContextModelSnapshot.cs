@@ -3873,6 +3873,9 @@ namespace Humans.Infrastructure.Migrations
                     b.Property<Guid?>("TeamId")
                         .HasColumnType("uuid");
 
+                    b.Property<Instant?>("PricesLastRefreshedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Instant>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
