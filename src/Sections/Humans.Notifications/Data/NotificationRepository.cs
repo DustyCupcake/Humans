@@ -41,7 +41,7 @@ internal sealed class NotificationRepository(IDbContextFactory<NotificationsDbCo
     }
 
     public async Task<NotificationMutationOutcome> ResolveAsync(
-        Guid notificationId, Guid actorUserId, Instant now, CancellationToken ct = default)
+        Guid notificationId, Guid actorUserId, Instant now, NotificationClass expectedClass, CancellationToken ct = default)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);
         var notification = await ctx.Notifications
@@ -54,33 +54,7 @@ internal sealed class NotificationRepository(IDbContextFactory<NotificationsDbCo
         if (!notification.Recipients.Any(r => r.UserId == actorUserId))
             return new NotificationMutationOutcome(false, NotFound: false, Forbidden: true, []);
 
-        var recipientIds = notification.Recipients.Select(r => r.UserId).ToList();
-
-        if (notification.ResolvedAt is not null)
-            return new NotificationMutationOutcome(true, NotFound: false, Forbidden: false, recipientIds);
-
-        notification.ResolvedAt = now;
-        notification.ResolvedByUserId = actorUserId;
-        await ctx.SaveChangesAsync(ct);
-
-        return new NotificationMutationOutcome(true, NotFound: false, Forbidden: false, recipientIds);
-    }
-
-    public async Task<NotificationMutationOutcome> DismissAsync(
-        Guid notificationId, Guid actorUserId, Instant now, CancellationToken ct = default)
-    {
-        await using var ctx = await factory.CreateDbContextAsync(ct);
-        var notification = await ctx.Notifications
-            .Include(n => n.Recipients)
-            .FirstOrDefaultAsync(n => n.Id == notificationId, ct);
-
-        if (notification is null)
-            return new NotificationMutationOutcome(false, NotFound: true, Forbidden: false, []);
-
-        if (!notification.Recipients.Any(r => r.UserId == actorUserId))
-            return new NotificationMutationOutcome(false, NotFound: false, Forbidden: true, []);
-
-        if (notification.Class == NotificationClass.Actionable)
+        if (notification.Class != expectedClass)
             return new NotificationMutationOutcome(false, NotFound: false, Forbidden: true, []);
 
         var recipientIds = notification.Recipients.Select(r => r.UserId).ToList();
@@ -133,7 +107,7 @@ internal sealed class NotificationRepository(IDbContextFactory<NotificationsDbCo
     }
 
     public async Task<IReadOnlyList<Guid>> BulkResolveAsync(
-        IReadOnlyList<Guid> notificationIds, Guid userId, Instant now, CancellationToken ct = default)
+        IReadOnlyList<Guid> notificationIds, Guid userId, Instant now, NotificationClass expectedClass, CancellationToken ct = default)
     {
         if (notificationIds.Count == 0) return [];
 
@@ -141,39 +115,7 @@ internal sealed class NotificationRepository(IDbContextFactory<NotificationsDbCo
         var notifications = await ctx.Notifications
             .Include(n => n.Recipients)
             .Where(n => notificationIds.Contains(n.Id) &&
-                        n.Class == NotificationClass.Actionable &&
-                        n.ResolvedAt == null)
-            .ToListAsync(ct);
-
-        var affected = new HashSet<Guid>();
-
-        foreach (var notification in notifications)
-        {
-            if (notification.Recipients.Any(r => r.UserId == userId))
-            {
-                notification.ResolvedAt = now;
-                notification.ResolvedByUserId = userId;
-                foreach (var r in notification.Recipients)
-                    affected.Add(r.UserId);
-            }
-        }
-
-        if (affected.Count > 0)
-            await ctx.SaveChangesAsync(ct);
-
-        return [.. affected];
-    }
-
-    public async Task<IReadOnlyList<Guid>> BulkDismissAsync(
-        IReadOnlyList<Guid> notificationIds, Guid userId, Instant now, CancellationToken ct = default)
-    {
-        if (notificationIds.Count == 0) return [];
-
-        await using var ctx = await factory.CreateDbContextAsync(ct);
-        var notifications = await ctx.Notifications
-            .Include(n => n.Recipients)
-            .Where(n => notificationIds.Contains(n.Id) &&
-                        n.Class == NotificationClass.Informational &&
+                        n.Class == expectedClass &&
                         n.ResolvedAt == null)
             .ToListAsync(ct);
 
@@ -219,11 +161,12 @@ internal sealed class NotificationRepository(IDbContextFactory<NotificationsDbCo
     }
 
     public async Task<bool> ResolveBySourceAsync(
-        Guid userId, NotificationSource source, Instant now, CancellationToken ct = default)
+        Guid userId, NotificationSource source, Instant now, CancellationToken ct = default, string? sourceKey = null)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);
         var notifications = await ctx.Notifications
             .Where(n => n.Source == source
+                        && (sourceKey == null || n.SourceKey == sourceKey)
                         && n.ResolvedAt == null
                         && n.Recipients.Any(r => r.UserId == userId))
             .ToListAsync(ct);
@@ -267,21 +210,22 @@ internal sealed class NotificationRepository(IDbContextFactory<NotificationsDbCo
         return [.. affected];
     }
 
-    public async Task<int> DeleteUnresolvedBySourcesAsync(
+    public async Task<(int Deleted, IReadOnlyList<Guid> AffectedUserIds)> DeleteUnresolvedBySourcesAsync(
         IReadOnlyList<NotificationSource> sources, CancellationToken ct = default)
     {
-        if (sources.Count == 0) return 0;
+        if (sources.Count == 0) return (0, []);
 
         await using var ctx = await factory.CreateDbContextAsync(ct);
         var toDelete = await ctx.Notifications
+            .Include(n => n.Recipients)
             .Where(n => n.ResolvedAt == null && sources.Contains(n.Source))
             .ToListAsync(ct);
 
-        if (toDelete.Count == 0) return 0;
+        if (toDelete.Count == 0) return (0, []);
 
         ctx.Notifications.RemoveRange(toDelete);
         await ctx.SaveChangesAsync(ct);
-        return toDelete.Count;
+        return (toDelete.Count, toDelete.SelectMany(n => n.Recipients).Select(r => r.UserId).Distinct().ToList());
     }
 
     public async Task<int> DeleteResolvedOlderThanAsync(Instant resolvedCutoff, CancellationToken ct = default)
@@ -298,21 +242,22 @@ internal sealed class NotificationRepository(IDbContextFactory<NotificationsDbCo
         return toDelete.Count;
     }
 
-    public async Task<int> DeleteUnresolvedInformationalOlderThanAsync(
+    public async Task<(int Deleted, IReadOnlyList<Guid> AffectedUserIds)> DeleteUnresolvedInformationalOlderThanAsync(
         Instant createdCutoff, CancellationToken ct = default)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);
         var toDelete = await ctx.Notifications
+            .Include(n => n.Recipients)
             .Where(n => n.ResolvedAt == null &&
                         n.Class == NotificationClass.Informational &&
                         n.CreatedAt < createdCutoff)
             .ToListAsync(ct);
 
-        if (toDelete.Count == 0) return 0;
+        if (toDelete.Count == 0) return (0, []);
 
         ctx.Notifications.RemoveRange(toDelete);
         await ctx.SaveChangesAsync(ct);
-        return toDelete.Count;
+        return (toDelete.Count, toDelete.SelectMany(n => n.Recipients).Select(r => r.UserId).Distinct().ToList());
     }
 
     // ==========================================================================

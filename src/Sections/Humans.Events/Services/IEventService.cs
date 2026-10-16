@@ -17,7 +17,8 @@ internal interface IEventService : IApplicationService, IEventServiceRead
     // GetGuideSettingsAsync is declared on IEventServiceRead (cross-section read surface).
     Task<IReadOnlyList<EventSettingsInfo>> GetEventSettingsOptionsAsync(CancellationToken ct = default);
     Task<EventSettingsInfo?> GetEventSettingsByIdAsync(Guid id, CancellationToken ct = default);
-    Task SaveGuideSettingsAsync(
+    /// <summary>Returns false if the selected event edition no longer exists; dependency failures propagate.</summary>
+    Task<bool> SaveGuideSettingsAsync(
         Guid? existingId, Guid eventSettingsId,
         LocalDateTime submissionOpenAt, LocalDateTime submissionCloseAt, LocalDateTime guidePublishAt,
         int maxPrintSlots, CancellationToken ct = default);
@@ -67,6 +68,12 @@ internal interface IEventService : IApplicationService, IEventServiceRead
     Task SubmitEventAsync(Event guideEvent, string? lifecycleActionUrl = null, CancellationToken ct = default);
     Task UpdateAndResubmitAsync(Event guideEvent, CancellationToken ct = default);
     Task WithdrawEventAsync(Event guideEvent, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moderator withdrawal: withdraws the event and appends a
+    /// <see cref="EventModerationActionType.Withdrawn"/> history row naming the moderator.
+    /// </summary>
+    Task ModeratorWithdrawAsync(Event guideEvent, Guid actorUserId, CancellationToken ct = default);
 
     /// <summary>
     /// Admin / moderator in-place edit of a mutated event. Persists the field

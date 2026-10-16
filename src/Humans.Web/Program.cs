@@ -238,11 +238,6 @@ if (!builder.Environment.IsEnvironment("Testing"))
     {
         config.SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
             .UseSimpleAssemblyNameTypeSerializer()
-            // Scoped Google syncs enqueued or retry-scheduled before nobodies-collective/Humans#1066
-            // name IGoogleGroupSync / IGoogleDriveSync / SyncAction in the removed
-            // Humans.GoogleIntegration.Contracts assembly. Remove once none remain in storage (CENTRAL-70).
-            .UseTypeResolver(typeName => Hangfire.Common.TypeHelper.DefaultTypeResolver(typeName.Replace(
-                ", Humans.GoogleIntegration.Contracts", ", Humans.GoogleIntegration", StringComparison.Ordinal)))
             .UseRecommendedSerializerSettings();
 
         config.UsePostgreSqlStorage(options =>
@@ -587,7 +582,7 @@ CurrentUserEnricher.StaticAccessor = app.Services.GetRequiredService<IHttpContex
             assembly.GetName().Name, string.Join(", ", resourceNames));
 
         // Check satellite assemblies
-        foreach (var culture in new[] { "en", "es", "de", "it", "fr", "ca" })
+        foreach (var culture in supportedCultures)
         {
             try
             {
@@ -681,27 +676,25 @@ if (!app.Environment.IsDevelopment())
     app.UseResponseCompression();
 }
 
-// Block direct /uploads/profile-pictures/ before UseStaticFiles — must go through /Profile/Picture/{id} for GDPR anonymization gate.
-app.Use(async (context, next) =>
-{
-    var path = context.Request.Path.Value;
-    if (path is not null &&
-        path.StartsWith("/uploads/profile-pictures/", StringComparison.OrdinalIgnoreCase))
-    {
-        context.Response.StatusCode = StatusCodes.Status404NotFound;
-        return;
-    }
-    await next();
-});
+// Private uploads must pass their access gate before static-file serving.
+app.UseMiddleware<PrivateUploadMiddleware>();
 
 // "no-cache" = cache but always revalidate (cheap 304s at this scale). Without an explicit policy,
 // browsers heuristically cache static files (~10% of time since Last-Modified) with NO request at
 // all, so after a release some long-running kiosk tablets kept serving week-old CSS/JS while others
 // didn't. Fingerprinted URLs (asp-append-version / FileVersionProvider) change per release, but
 // unfingerprinted paths — and nested JS module imports, which no tag helper can reach — need this.
+// /uploads/profile-pictures/ (GDPR gate, via /Profile/Picture/{id}) and /uploads/issues/ (reach check, via
+// /Issues/{id}/Screenshot) are structurally unreachable here: GatedUploadsFileProvider canonicalizes the
+// subpath, so alternate spellings like /uploads//issues/ cannot bypass the gate.
 app.UseStaticFiles(new StaticFileOptions
 {
-    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache",
+    FileProvider = new Humans.Web.Hosting.GatedUploadsFileProvider(app.Environment.WebRootFileProvider),
+    OnPrepareResponse = ctx =>
+    {
+        if (!ctx.Context.Response.Headers.ContainsKey("Cache-Control"))
+            ctx.Context.Response.Headers.CacheControl = "no-cache";
+    },
 });
 
 // Serve .well-known directory (blocked by default since it starts with a dot)

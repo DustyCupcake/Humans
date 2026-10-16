@@ -224,6 +224,23 @@ internal sealed class IssuesController(
         return RedirectToAction(nameof(Index), new { selected = id });
     }
 
+    /// <summary>
+    /// The issue's screenshot, behind the same reach as <see cref="Detail"/>: a handler of its
+    /// section, or its reporter. Missing and out-of-reach answer alike.
+    /// </summary>
+    [HttpGet("{id}/Screenshot")]
+    public async Task<IActionResult> Screenshot(Guid id)
+    {
+        var (userMissing, user) = await RequireCurrentUserAsync(HttpContext.RequestAborted);
+        if (userMissing is not null) return userMissing;
+
+        var screenshot = await issues.GetScreenshotAsync(id, ViewerFor(user.Id), HttpContext.RequestAborted);
+        if (screenshot is null) return NotFound();
+
+        Response.Headers.CacheControl = "private, no-store";
+        return File(screenshot.Content, screenshot.ContentType);
+    }
+
     private async Task PopulateAssigneeOptionsAsync(IssueDetailViewModel vm, CancellationToken ct)
     {
         var activeIds = (await UserService.GetAllUserInfosAsync(ct).ConfigureAwait(false))
@@ -286,21 +303,16 @@ internal sealed class IssuesController(
 
         try
         {
-            await issues.PostCommentAsync(
+            var result = await issues.PostCommentAsync(
                 id,
                 viewer,
                 user.Id,
                 model.Content,
                 resolveOnPost: model.ResolveOnPost && canHandle);
 
-            SetSuccess(localizer["Issue_Comment_Posted"].Value);
-        }
-        catch (InvalidOperationException)
-        {
-            // Race: issue existed at the null-check above but was deleted
-            // before the mutation reached the service.
-            logger.LogWarning("Issue {IssueId} not found during PostComment (deleted in race)", id);
-            return NotFound();
+            if (result.NotFound) return NotFound();
+            if (result.Comment is not null) SetSuccess(localizer["Issue_Comment_Posted"].Value);
+            else SetError(localizer["Issue_Comment_PostFailed"].Value);
         }
         catch (Exception ex)
         {
@@ -329,7 +341,7 @@ internal sealed class IssuesController(
             return BadRequest(ModelState);
         }
 
-        var result = await issues.UpdateStatusWithResultAsync(id, viewer, model.Status, user.Id);
+        var result = await issues.UpdateStatusAsync(id, viewer, model.Status, user.Id);
         if (result.NotFound) return NotFound();
 
         if (result.Succeeded)
@@ -362,7 +374,7 @@ internal sealed class IssuesController(
             return BadRequest(ModelState);
         }
 
-        var result = await issues.UpdateAssigneeWithResultAsync(id, viewer, model.AssigneeUserId, user.Id);
+        var result = await issues.UpdateAssigneeAsync(id, viewer, model.AssigneeUserId, user.Id);
         if (result.NotFound) return NotFound();
 
         if (result.Succeeded)
@@ -395,7 +407,7 @@ internal sealed class IssuesController(
             return BadRequest(ModelState);
         }
 
-        var result = await issues.UpdateSectionWithResultAsync(id, viewer, model.Section, user.Id);
+        var result = await issues.UpdateSectionAsync(id, viewer, model.Section, user.Id);
         if (result.NotFound) return NotFound();
         if (result.Succeeded)
         {
@@ -403,13 +415,9 @@ internal sealed class IssuesController(
         }
         else
         {
-            // The only handler that still surfaces the service's own string: the section
-            // rejection ("cannot change section on a terminal issue") is the one failure
-            // reason a user can act on. It is English-only — localizing it needs the
-            // service to return a resource key, which rides with the pipeline collapse
-            // in Docs/health.md §5. The other three reasons are generic, so they use
-            // the localized message.
-            SetError(result.ErrorMessage ?? localizer["Issue_Error"].Value);
+            SetError(result.ErrorKey is { } key
+                ? result.ErrorLimit is { } limit ? localizer[key, limit].Value : localizer[key].Value
+                : localizer["Issue_Error"].Value);
         }
 
         return RedirectToAction(nameof(Index), new { selected = id });
@@ -433,7 +441,7 @@ internal sealed class IssuesController(
             return BadRequest(ModelState);
         }
 
-        var result = await issues.SetGitHubIssueNumberWithResultAsync(id, viewer, model.GitHubIssueNumber, user.Id);
+        var result = await issues.SetGitHubIssueNumberAsync(id, viewer, model.GitHubIssueNumber, user.Id);
         if (result.NotFound) return NotFound();
 
         if (result.Succeeded)
@@ -481,7 +489,7 @@ internal sealed class IssuesController(
             PageUrl = i.PageUrl,
             UserAgent = i.UserAgent,
             AdditionalContext = i.AdditionalContext,
-            ScreenshotUrl = i.ScreenshotStoragePath is not null ? $"/{i.ScreenshotStoragePath}" : null,
+            ScreenshotUrl = i.ScreenshotStoragePath is not null ? Url.Action(nameof(Screenshot), "Issues", new { id = i.Id }) : null,
             ReporterUserId = i.ReporterUserId,
             AssigneeUserId = i.AssigneeUserId,
             GitHubIssueNumber = i.GitHubIssueNumber,

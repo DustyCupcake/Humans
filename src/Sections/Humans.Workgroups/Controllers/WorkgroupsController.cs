@@ -60,9 +60,11 @@ internal sealed class WorkgroupsController(
 
         return await FormAsync(model, async () =>
         {
-            var id = await workgroups.ApplyAsync(user.Id, model.ToApplication(), ct);
+            var mutation = await workgroups.ApplyAsync(user.Id, model.ToApplication(), ct);
+            if (mutation.Refusal is not null) return (mutation, null);
+            var id = mutation.Value;
             var created = await workgroups.GetByIdAsync(id, ct);
-            return RedirectToAction(nameof(Details), new { slug = created?.Slug ?? id.ToString() });
+            return (mutation, RedirectToAction(nameof(Details), new { slug = created?.Slug ?? id.ToString() }));
         }, "Workgroups_Applied");
     }
 
@@ -93,7 +95,8 @@ internal sealed class WorkgroupsController(
             People = people,
             BoardUserIds = board?.Members.Select(m => m.UserId).ToHashSet() ?? [],
             IsMember = workgroup.IsMember(user.Id),
-            IsCoordinator = workgroup.CoordinatorUserIds().Contains(user.Id),
+            IsCoordinator = workgroup.IsCoordinator(user.Id),
+            IsPendingMember = workgroup.IsPendingMember(user.Id),
             CanAdminister = canAdminister,
             CanDoMemberWork = await MayDoMemberWorkAsync(workgroup),
             CanSeeBudget = canSeeBudget,
@@ -119,6 +122,31 @@ internal sealed class WorkgroupsController(
     public Task<IActionResult> RequestStatus(string slug, string? question, CancellationToken ct) =>
         ActAsync(slug, (id, userId) => workgroups.RequestStatusAsync(id, userId, question, ct),
             "Workgroups_StatusRequested", ct, memberOnly: false);
+
+    // ── Membership decisions: coordinators and Board/Admin ────────────────
+
+    [HttpPost("{slug}/Members/{userId:guid}/Approve")]
+    [ValidateAntiForgeryToken]
+    public Task<IActionResult> ApproveMember(string slug, Guid userId, CancellationToken ct) =>
+        ManageMembersAsync(slug,
+            (id, actorId, asAdmin) => workgroups.ApproveMemberAsync(id, actorId, userId, asAdmin, ct),
+            "Workgroups_MemberApproved", ct);
+
+    [HttpPost("{slug}/Members/{userId:guid}/Decline")]
+    [ValidateAntiForgeryToken]
+    public Task<IActionResult> DeclineMember(string slug, Guid userId, CancellationToken ct) =>
+        ManageMembersAsync(slug,
+            (id, actorId, asAdmin) => workgroups.DeclineMemberAsync(id, actorId, userId, asAdmin, ct),
+            "Workgroups_MemberDeclined", ct);
+
+    [HttpPost("{slug}/Members/Add")]
+    [ValidateAntiForgeryToken]
+    public Task<IActionResult> AddMember(string slug, Guid? userId, CancellationToken ct) =>
+        ManageMembersAsync(slug,
+            (id, actorId, asAdmin) => userId is { } added
+                ? workgroups.AddMemberAsync(id, actorId, added, asAdmin, ct)
+                : Task.FromResult(new WorkgroupMutationResult(new WorkgroupRefusal(WorkgroupErrorKeys.NotFound))),
+            "Workgroups_MemberAdded", ct);
 
     // ── Register fields and coordinators ──────────────────────────────────
 
@@ -146,10 +174,11 @@ internal sealed class WorkgroupsController(
 
         return await FormAsync(model, async () =>
         {
-            await workgroups.EditRegisterAsync(workgroup.Id, user.Id, model.ToEdit(), ct);
+            var mutation = await workgroups.EditRegisterAsync(workgroup.Id, user.Id, model.ToEdit(), ct);
+            if (mutation.Refusal is not null) return (mutation, null);
             // The name may have re-slugged the group, so the redirect asks by id.
             var saved = await workgroups.GetByIdAsync(workgroup.Id, ct);
-            return RedirectToAction(nameof(Details), new { slug = saved?.Slug ?? slug });
+            return (mutation, RedirectToAction(nameof(Details), new { slug = saved?.Slug ?? slug }));
         }, "Workgroups_Saved");
     }
 
@@ -190,11 +219,12 @@ internal sealed class WorkgroupsController(
 
         return await FormAsync(model, async () =>
         {
+            WorkgroupMutationResult mutation;
             if (model.Id is { } id)
-                await workgroups.UpdateMeetingAsync(id, user.Id, model.ToSave(), ct);
+                mutation = await workgroups.UpdateMeetingAsync(id, user.Id, model.ToSave(), ct);
             else
-                await workgroups.CreateMeetingAsync(workgroup.Id, user.Id, model.ToSave(), ct);
-            return RedirectToAction(nameof(Details), new { slug = workgroup.Slug });
+                mutation = await workgroups.CreateMeetingAsync(workgroup.Id, user.Id, model.ToSave(), ct);
+            return (mutation, RedirectToAction(nameof(Details), new { slug = workgroup.Slug }));
         }, "Workgroups_MeetingSaved", MeetingForm);
     }
 
@@ -233,11 +263,12 @@ internal sealed class WorkgroupsController(
 
         return await FormAsync(model, async () =>
         {
+            WorkgroupMutationResult mutation;
             if (model.Id is { } id)
-                await workgroups.UpdateLogEntryAsync(id, user.Id, model.ToSave(), ct);
+                mutation = await workgroups.UpdateLogEntryAsync(id, user.Id, model.ToSave(), ct);
             else
-                await workgroups.AddLogEntryAsync(workgroup.Id, user.Id, model.ToSave(), ct);
-            return RedirectToAction(nameof(Details), new { slug = workgroup.Slug });
+                mutation = await workgroups.AddLogEntryAsync(workgroup.Id, user.Id, model.ToSave(), ct);
+            return (mutation, RedirectToAction(nameof(Details), new { slug = workgroup.Slug }));
         }, "Workgroups_LogEntrySaved", LogEntryForm);
     }
 
@@ -275,8 +306,9 @@ internal sealed class WorkgroupsController(
 
         var isMember = workgroup.IsMember(user.Id);
         var canAdminister = await MayAdministerAsync(workgroup);
-        // A draft is the group's working copy; it is not the register's business yet.
-        if (document.Status == WorkgroupDocumentStatus.Draft && !isMember && !canAdminister)
+        // A draft is the group's working copy; it is not the register's business yet. A
+        // sensitive group's documents are never anyone else's business.
+        if ((document.Status == WorkgroupDocumentStatus.Draft || workgroup.IsSensitive) && !isMember && !canAdminister)
             return NotFound();
 
         return View(new DocumentPageViewModel
@@ -316,11 +348,16 @@ internal sealed class WorkgroupsController(
         return await FormAsync(model, async () =>
         {
             var id = model.Id;
+            WorkgroupMutationResult mutation;
             if (id is { } existing)
-                await workgroups.UpdateDocumentAsync(existing, user.Id, model.ToSave(), ct);
+                mutation = await workgroups.UpdateDocumentAsync(existing, user.Id, model.ToSave(), ct);
             else
-                id = await workgroups.CreateDocumentAsync(workgroup.Id, user.Id, model.ToSave(), ct);
-            return RedirectToAction(nameof(Document), new { slug = workgroup.Slug, id });
+            {
+                var created = await workgroups.CreateDocumentAsync(workgroup.Id, user.Id, model.ToSave(), ct);
+                mutation = created;
+                id = created.Value;
+            }
+            return (mutation, RedirectToAction(nameof(Document), new { slug = workgroup.Slug, id }));
         }, "Workgroups_DocumentSaved", DocumentForm);
     }
 
@@ -458,14 +495,14 @@ internal sealed class WorkgroupsController(
     }
 
     /// <summary>Authorize the group and nested resource before mutating, then redirect with feedback.</summary>
-    private async Task<IActionResult> ActAsync(
+    private async Task<IActionResult> ActAsync<T>(
         string slug,
-        Func<Guid, Guid, Task> action,
+        Func<Guid, Guid, Task<T>> action,
         string successKey,
         CancellationToken ct,
         Guid? documentId = null,
         bool memberOnly = true,
-        Func<WorkgroupInfo, bool>? owns = null)
+        Func<WorkgroupInfo, bool>? owns = null) where T : WorkgroupMutationResult
     {
         var (error, user) = await ResolveCurrentUserOrChallengeAsync(ct);
         if (error is not null) return error;
@@ -473,15 +510,15 @@ internal sealed class WorkgroupsController(
         if (memberOnly && !await MayDoMemberWorkAsync(workgroup)) return Forbid();
         if (owns is not null && !owns(workgroup)) return NotFound();
 
-        try
+        var result = await action(workgroup.Id, user.Id);
+        if (result.Refusal is { } refusal)
         {
-            await action(workgroup.Id, user.Id);
-            SetSuccess(localizer[successKey]);
+            logger.LogWarning("Workgroups {Action}: rule {Rule}", ActionName(), refusal.Key);
+            SetError(localizer[refusal.Key, refusal.Args]);
         }
-        catch (WorkgroupRuleException ex)
+        else
         {
-            logger.LogWarning("Workgroups {Action}: rule {Rule}", ActionName(), ex.Key);
-            SetError(localizer[ex.Key, ex.Args]);
+            SetSuccess(localizer[successKey]);
         }
 
         return documentId is { } id
@@ -489,22 +526,47 @@ internal sealed class WorkgroupsController(
             : RedirectToAction(nameof(Details), new { slug = workgroup.Slug });
     }
 
+    /// <summary>
+    /// Membership decisions: a coordinator of an Active group, or Board/Admin (passed through
+    /// as <c>asAdmin</c> so the service skips its own coordinator check). Everyone else gets Forbid.
+    /// </summary>
+    private async Task<IActionResult> ManageMembersAsync(
+        string slug, Func<Guid, Guid, bool, Task<WorkgroupMutationResult>> action, string successKey, CancellationToken ct)
+    {
+        var (error, user) = await ResolveCurrentUserOrChallengeAsync(ct);
+        if (error is not null) return error;
+        if (await ResolveAsync(slug, ct) is not { } workgroup) return NotFound();
+        var asAdmin = await MayAdministerAsync(workgroup);
+        if (!asAdmin && !(workgroup.IsCoordinator(user.Id) && await MayDoMemberWorkAsync(workgroup))) return Forbid();
+
+        var result = await action(workgroup.Id, user.Id, asAdmin);
+        if (result.Refusal is { } refusal)
+        {
+            logger.LogWarning("Workgroups {Action}: rule {Rule}", ActionName(), refusal.Key);
+            SetError(localizer[refusal.Key, refusal.Args]);
+        }
+        else
+        {
+            SetSuccess(localizer[successKey]);
+        }
+        return RedirectToAction(nameof(Details), new { slug = workgroup.Slug });
+    }
+
     /// <summary>Form POSTs: a rule re-renders the form with its localized message.</summary>
     private async Task<IActionResult> FormAsync(
-        object model, Func<Task<IActionResult>> action, string successKey, string? viewName = null)
+        object model, Func<Task<(WorkgroupMutationResult Mutation, IActionResult? Response)>> action,
+        string successKey, string? viewName = null)
     {
-        try
+        var (mutation, response) = await action();
+        if (mutation.Refusal is { } refusal)
         {
-            var result = await action();
-            SetSuccess(localizer[successKey]);
-            return result;
-        }
-        catch (WorkgroupRuleException ex)
-        {
-            logger.LogWarning("Workgroups {Action}: rule {Rule}", ActionName(), ex.Key);
-            ModelState.AddModelError(string.Empty, localizer[ex.Key, ex.Args]);
+            logger.LogWarning("Workgroups {Action}: rule {Rule}", ActionName(), refusal.Key);
+            ModelState.AddModelError(string.Empty, localizer[refusal.Key, refusal.Args]);
             return viewName is null ? View(model) : View(viewName, model);
         }
+
+        SetSuccess(localizer[successKey]);
+        return response!;
     }
 
     private string? ActionName() => ControllerContext.ActionDescriptor.ActionName;

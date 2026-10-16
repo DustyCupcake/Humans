@@ -5,7 +5,7 @@ namespace Humans.Expenses.Tests;
 
 /// <summary>
 /// Architecture tests enforcing the section shape for Expenses
-/// (nobodies-collective/Humans#866, G5).
+/// (nobodies-collective/Humans#866).
 /// </summary>
 /// <remarks>
 /// The section project references EF Core because its repository lives in it; "only the
@@ -16,7 +16,7 @@ public class ExpensesArchitectureTests
     [HumansFact]
     public void ContractsDoNotReExposeTheHoldedConnector()
     {
-        // ExpenseReportService.DrainHoldedOutboxAsync uses IHoldedClient,
+        // ExpenseReportBackgroundProcessor.DrainHoldedOutboxAsync uses IHoldedClient,
         // HoldedPurchaseDocumentInput, HoldedAttachmentInput and HoldedTransientException
         // heavily. Those belong to the Base connector, which did not move
         // (memory/architecture/vendor-connectors-own-sections.md). Letting one into the

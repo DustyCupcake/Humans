@@ -48,11 +48,11 @@ internal sealed class SystemTeamSyncJob(
     private IApplicationServiceRead ApplicationDecisionService =>
         serviceProvider.GetRequiredService<IApplicationServiceRead>();
 
-    private IRoleAssignmentService RoleAssignmentService =>
-        serviceProvider.GetRequiredService<IRoleAssignmentService>();
+    private IRoleAssignmentServiceRead RoleAssignmentService =>
+        serviceProvider.GetRequiredService<IRoleAssignmentServiceRead>();
 
-    private ITeamResourceService TeamResourceService =>
-        serviceProvider.GetRequiredService<ITeamResourceService>();
+    private ITeamResourceServiceRead TeamResourceService =>
+        serviceProvider.GetRequiredService<ITeamResourceServiceRead>();
 
     private IMembershipCalculatorRead MembershipCalculator =>
         serviceProvider.GetRequiredService<IMembershipCalculatorRead>();
@@ -80,7 +80,7 @@ internal sealed class SystemTeamSyncJob(
             // record successful sync-log rows; the team membership work above still lands.
             if (googleClient.IsConfigured)
             {
-                await googleGroupSync.ReconcileAllAsync(SyncAction.Execute, cancellationToken);
+                await googleGroupSync.ReconcileAllAsync(SyncAction.Execute, cancellationToken, GoogleSyncSource.SystemTeamSync);
             }
             else
             {

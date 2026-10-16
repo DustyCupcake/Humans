@@ -79,6 +79,9 @@ namespace Humans.Workgroups.Data.Migrations
                     b.Property<int?>("HoldedAccountNumber")
                         .HasColumnType("integer");
 
+                    b.Property<bool?>("IsSensitive")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -376,6 +379,9 @@ namespace Humans.Workgroups.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool?>("IsPending")
+                        .HasColumnType("boolean");
+
                     b.Property<Instant>("JoinedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -402,6 +408,21 @@ namespace Humans.Workgroups.Data.Migrations
                         .HasFilter("\"LeftAt\" IS NULL");
 
                     b.ToTable("workgroup_members", (string)null);
+                });
+
+            modelBuilder.Entity("Humans.Workgroups.Domain.WorkgroupsSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RootDriveFolderId")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("workgroups_settings", (string)null);
                 });
 
             modelBuilder.Entity("Humans.Workgroups.Domain.WorkgroupDocument", b =>

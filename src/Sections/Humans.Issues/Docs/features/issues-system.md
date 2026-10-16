@@ -1,6 +1,7 @@
 <!-- freshness:triggers
   src/Sections/Humans.Issues/**
-  src/Sections/Humans.Issues/Contracts/**
+  src/Sections/Humans.Backdoor/Controllers/BackdoorIssuesController.cs
+  src/Sections/*/Section.cs
 -->
 <!-- freshness:flag-on-change
   Issues entities, controller routes, API surface, status transitions, section routing, or handler-vs-reporter auth rules may have changed; verify the auth matrix and routes table.
@@ -27,7 +28,7 @@ Issues is the only in-app reporting path. Feedback (`src/Sections/Humans.Feedbac
 - `Section` defaults to auto-detected from `PageUrl` via `IssueSectionInference.FromPath` when the widget is used; the `/Issues/New` form lets the reporter pick or leave blank for auto-detection
 - Page URL, user agent, and the reporter's roles captured automatically into `AdditionalContext`
 - Screenshot upload limited to JPEG/PNG/WebP, max 10 MB
-- Issues are retained for 6 months after entering a terminal state (Resolved / WontFix / Duplicate); a daily Hangfire job (`CleanupIssuesJob`) then deletes the row, comments, and screenshot directory. The job is a scheduler shim — the policy lives behind `IIssuesRetention.PurgeExpiredAsync` inside the section
+- Issues are retained for 6 months after entering a terminal state (Resolved / WontFix / Duplicate); a daily Hangfire job (`CleanupIssuesJob`) then deletes the row, comments, and screenshot file. The job is a scheduler shim — the policy lives behind `IIssuesRetention.PurgeExpiredAsync` inside the section
 - Success/error feedback via TempData toast
 - Submission lands at `Status = Triage` with `Section` from the form (or auto-inferred, or null → Admin queue)
 
@@ -68,8 +69,8 @@ Issues is the only in-app reporting path. Feedback (`src/Sections/Humans.Feedbac
 **As** a reporter or handler, **I want** to know when something happens on an issue I'm involved in, **so that** I don't have to refresh `/Issues` to keep the conversation moving.
 
 **Acceptance Criteria:**
-- When a new issue is submitted, an in-app `NotificationSource.IssueSubmitted` notification fans out to every viewer for whom the issue is in-queue (Admin + role-holders of `issue.Section`), keyed by `sourceKey: issue.Id.ToString()`; when the issue transitions to a terminal status, `IssuesService.ResolveSubmittedNotificationsAsync` resolves those notifications by that sourceKey
-- When a comment is posted, an in-app notification goes to the **other party** — handlers + assignee when the reporter comments, the reporter + assignee when a handler comments. Email is only sent when a **handler** comments (to the reporter); reporter→handler comments are in-app only because handlers already see new comments in their queue.
+- When a new issue is submitted, an in-app `NotificationSource.IssueSubmitted` notification fans out to role-holders of `issue.Section`, or to Admins when no role owns the queue, keyed by `sourceKey: issue.Id.ToString()`; when the issue transitions to a terminal status, `IssuesService.ResolveSubmittedNotificationsAsync` resolves those notifications by that sourceKey
+- When a comment is posted, an in-app notification goes to the **other party** — the queue's handlers (same Admin fallback) + assignee when the reporter comments, the reporter + assignee when a handler comments. Email is only sent when a **handler** comments (to the reporter); reporter→handler comments are in-app only because handlers already see new comments in their queue.
 - When status changes, the reporter and current assignee are notified
 - When an issue is assigned, the new assignee is notified
 - Emails are queued via the email outbox (`OutboxEmailService`) and localized in the recipient's preferred language (en/es/de/fr/it/ca)
@@ -103,7 +104,13 @@ Issues is the only in-app reporting path. Feedback (`src/Sections/Humans.Feedbac
 
 See [`src/Sections/Humans.Issues/Docs/Issues.md`](../Issues.md) for full field-level detail on `Issue`, `IssueComment`, and the `IssueStatus` / `IssueCategory` enums. Owned tables: `issues`, `issue_comments`. `ReporterUserId`, `AssigneeUserId`, `ResolvedByUserId`, `SenderUserId` are bare columns with no FK and no nav property at all (nobodies-collective/Humans#1188), and display data is stitched in `IssuesService` via `IUserServiceRead.GetUserInfosAsync`.
 
-**Screenshot storage:** `wwwroot/uploads/issues/{issueId}/{guid}.{ext}`
+**Screenshot storage:** `IFileStorage` key `uploads/issues/{issueId}/{guid}.{ext}` (the store is rooted at wwwroot, so legacy rows keep resolving unchanged). The static `/uploads/issues/` path is blocked in the Shell; `GET /Issues/{id}/Screenshot` (cookie) and `GET /api/backdoor/issues/{id}/screenshot` (API key; the Backdoor payload's `ScreenshotUrl`) stream the file after the same reach check as Detail.
+
+Uploads use atomic `IFileStorage.SaveAsync`. If saving the Issue row fails, the upload is deleted; cleanup failures are logged and the original persistence failure propagates.
+
+Retention and GDPR erasure commit report removal before non-cancellable screenshot cleanup; storage failures are logged without reversing the committed operation.
+
+Direct screenshot reads reuse the viewer-scoped issue read before static-file serving. Anonymous and out-of-scope viewers receive 404; permitted reads must match the stored screenshot path and disable caching.
 
 ## Authorization Matrix
 
@@ -111,6 +118,7 @@ See [`src/Sections/Humans.Issues/Docs/Issues.md`](../Issues.md) for full field-l
 |----------|------|
 | `GET /Issues` | `[Authorize]` — Admin sees all; section role-holders see issues whose `Section` maps to one of their roles; regular humans see only their own |
 | `GET /Issues/{id}` | `[Authorize]` — handler (Admin or section role-holder) **or** the reporter |
+| `GET /Issues/{id}/Screenshot` | `[Authorize]` — handler **or** the reporter; otherwise 404 |
 | `GET /Issues/New` | `[Authorize]` (any authenticated user) |
 | `POST /Issues` (Submit) | `[Authorize]` (any authenticated user) |
 | `POST /Issues/{id}/Comments` | `[Authorize]` — handler **or** reporter (reporter comment on terminal status auto-reopens) |
@@ -137,6 +145,7 @@ Two places read it, for different reasons:
 | `GET /Issues/New` | IssuesController | New |
 | `POST /Issues` | IssuesController | Submit |
 | `GET /Issues/{id}` | IssuesController | Detail |
+| `GET /Issues/{id}/Screenshot` | IssuesController | Screenshot |
 | `POST /Issues/{id}/Comments` | IssuesController | PostComment |
 | `POST /Issues/{id}/Status` | IssuesController | UpdateStatus |
 | `POST /Issues/{id}/Assignee` | IssuesController | UpdateAssignee |
@@ -172,7 +181,7 @@ The Issues API is the read/write surface Claude Code agents use to triage and fo
 
 - `src/Sections/Humans.Feedback/Docs/features/feedback-system.md` — the retired global feedback queue Issues replaced: closed to new reports, Admin-only, kept as a historical archive.
 - Email outbox (`EmailOutboxMessage`) — used for comment notification emails.
-- Notifications (`37-notification-inbox.md`) — `NotificationSource.IssueSubmitted`, `NotificationSource.IssueComment`, `NotificationSource.IssueStatusChanged`, `NotificationSource.IssueAssigned`.
+- Notifications (`src/Sections/Humans.Notifications/Docs/features/notification-inbox.md`) — `NotificationSource.IssueSubmitted`, `NotificationSource.IssueComment`, `NotificationSource.IssueStatusChanged`, `NotificationSource.IssueAssigned`.
 - Audit log — every issue mutation is recorded.
 - `IssuesUserMenuViewComponent` — the section's own chrome contribution for the actionable item count.
 - Role management — `TicketAdmin`, `CampAdmin`, `TeamsAdmin`, `Board`, `ConsentCoordinator`, `VolunteerCoordinator`, `HumanAdmin`, `NoInfoAdmin`, `FinanceAdmin` roles all gate section-specific issue queues per `IssueSectionRouting.RolesFor`.

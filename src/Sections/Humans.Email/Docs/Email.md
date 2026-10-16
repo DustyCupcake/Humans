@@ -114,6 +114,10 @@ Per design-rules §8, each `system_settings` key is owned by its consuming secti
 
 ## Invariants
 
+- The template gallery requests samples for `CultureCatalog.SupportedCultureCodes`; it owns sample personas, not a second supported-language roster.
+
+- The unsubscribe footer uses `EmailMessage.Culture`, captured by opt-outable senders before their template scope ends, with English fallback for missing/unsupported culture. Regional codes use their supported base language. Shared composer previews use the viewer’s UI culture. The scalar is not stored: the outbox retains the already-rendered body; suppression, unsubscribe URLs/headers, and no-persistence system delivery keep their existing paths.
+
 - Email links use the shared `Email:BaseUrl`, normalized by Shell to omit trailing slashes before a route is appended.
 
 - Configured SMTP health probes propagate requested timeout/abort cancellation without logging or returning a connection failure; canceled probes start no connection.
@@ -122,7 +126,7 @@ Per design-rules §8, each `system_settings` key is owned by its consuming secti
 
 - The shared composer preview renders only its latest request per modal. Earlier successes or failures cannot overwrite the current draft’s preview, and separate modals remain independent.
 
-- Every outgoing email queued through `OutboxEmailService` writes a row to `email_outbox_messages` before any transport attempt — the audit trail for delivery. The single exception is `EmailMessage.DoNotPersist`, which hands the message straight to `IEmailTransport` and writes no row; it is set by exactly one template, `account_deleted`, because its recipient is a human the Article 17 cascade has just erased and a row would re-create their address, name and body. Such a message is never retried: retrying would mean keeping the address in order to retry with it.
+- Every outgoing email queued through `OutboxEmailService` writes a row to `email_outbox_messages` before any transport attempt — the audit trail for delivery. The single exception is `EmailMessage.DoNotPersist`, which hands the message straight to `IEmailTransport` and writes no row; it is set by exactly one template, `account_deleted`, because its recipient is a human the Article 17 cascade has just erased and a row would re-create their address, name and body. Its SMTP/stub transport logs contain only the template name and failure type, never erased identity, subject or exception contents. Such a message is never retried: retrying would mean keeping the address in order to retry with it.
 - `ProcessEmailOutboxJob` (Hangfire recurring, every minute — `*/1 * * * *`) selects rows with `SentAt IS NULL`, `RetryCount < OutboxMaxRetries`, `NextRetryAt <= now` (or null), and `PickedUpAt < now − 5 min` (or null). The batch is bounded by `OutboxBatchSize` and ordered **time-sensitive templates first, then FIFO by `CreatedAt` within each class** — see the priority invariant below. Selected rows are stamped `PickedUpAt = now` to block concurrent runs from picking the same rows, then sent one at a time through `IEmailTransport.SendAsync` with a 1-second throttle delay between successful sends.
 - While `IsEmailSendingPaused = "true"`, the job returns immediately — no rows are picked up.
 - **Time-sensitive mail jumps the queue.** `GetProcessingBatchAsync` orders rows whose `TemplateName` is one of `email_verification`, `magic_link_login`, `magic_link_signup`, `workspace_credentials` (`TimeSensitiveTemplates.Names`) ahead of every other row, then by `CreatedAt` within each of the two classes. Without this, a magic-link login lands behind whatever bulk mail is already queued and drains at the 1 send/second throttle — the user is locked out until the backlog clears (nobodies-collective/Humans#1122). No column and no schema change back this: it is ordering only, computed DB-side as a `CASE` in the `ORDER BY`. The immediate drain reads the same list, so the two cannot disagree.
@@ -151,11 +155,13 @@ Per design-rules §8, each `system_settings` key is owned by its consuming secti
 - **On batch pick-up:** rows in the batch are stamped `PickedUpAt = now` (block window 5 minutes).
 - **On successful delivery:** `Status = Sent`, `SentAt = now`, `PickedUpAt = null`. If `CampaignGrantId` is set, `ICampaignService.UpdateGrantEmailStatusAsync(grantId, Sent, now)` mirrors the status onto the grant — a failure there is logged and swallowed, never re-tallying the already-sent message as `Failed`. The job then sleeps 1 second before processing the next message.
 - **On delivery failure (any thrown exception):** `Status = Failed`, `RetryCount += 1`, `LastError = ex.Message` (bounded to 4000 UTF-16 code units without splitting a Unicode surrogate pair), `NextRetryAt = now + 2^(RetryCount+1) minutes`, `PickedUpAt = null`. If `CampaignGrantId` is set, the grant is mirrored with `Failed` — a failure there is logged and swallowed too, so it cannot abort the rest of the batch. Once `RetryCount >= OutboxMaxRetries`, the processor query stops returning the row.
-- **On admin pause:** `IsEmailSendingPaused = "true"`. (No audit entry is written by the controller today.)
-- **On admin resume:** `IsEmailSendingPaused = "false"`. (No audit entry is written by the controller today.)
-- **On admin retry of failed message:** row reset to `Status = Queued`, `RetryCount = 0`, `LastError = null`, `NextRetryAt = null`, `PickedUpAt = null`. (No audit entry today.)
-- **On admin discard:** row is deleted from `email_outbox_messages`.
+- **On admin pause:** `IsEmailSendingPaused = "true"`. The service records the acting admin after the setting save.
+- **On admin resume:** `IsEmailSendingPaused = "false"`. The service records the acting admin after the setting save.
+- **On admin retry of failed message:** row reset to `Status = Queued`, `RetryCount = 0`, `LastError = null`, `NextRetryAt = null`, `PickedUpAt = null`. After the save, `EmailOutboxService` records `EmailOutboxRetried` with the acting admin and message ID.
+- **On admin discard:** row is deleted from `email_outbox_messages`, then audited as `EmailOutboxDiscarded`.
 - **`CleanupEmailOutboxJob` (Hangfire recurring, weekly Sunday 03:00 UTC — `0 3 * * 0`):** deletes `Status = Sent` rows whose `SentAt` is older than `OutboxRetentionDays`.
+
+- Admin retry, discard, pause and resume require a parseable actor ID before mutation. The service audits successful writes as `EmailOutboxRetried`, `EmailOutboxDiscarded`, `EmailSendingPaused` or `EmailSendingResumed`; missing messages and failed saves emit no success entry. Audit descriptions contain no recipient address or message content.
 
 ## Cross-Section Dependencies
 
@@ -164,6 +170,7 @@ Per design-rules §8, each `system_settings` key is owned by its consuming secti
 - **Shifts:** `IShiftSignupService` sends approve/refuse/voluntell emails through this section.
 - **Feedback:** `IFeedbackService` sends admin-reply emails through this section.
 - **Onboarding:** `IOnboardingService` sends welcome emails through this section on Volunteer activation.
+- **AuditLog:** `IAuditLogService` records persisted admin outbox controls with the acting admin, without recipient or message content.
 - **Settings:** `ISettingsService` — `EmailOutboxService` reads / writes the `IsEmailSendingPaused` key in `system_settings` through this service (the Settings section owns the table).
 
 ## Architecture

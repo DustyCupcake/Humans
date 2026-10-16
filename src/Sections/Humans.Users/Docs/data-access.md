@@ -55,7 +55,7 @@ Repository: `IUserRepository` (profile and contact-field methods).
 | Profiles | R |
 
 Cross-section reads via `IUserServiceRead`, `ITeamServiceRead`,
-`IRoleAssignmentService` (visibility / coordinator-team lookups). Implements
+`IRoleAssignmentServiceRead` (visibility / coordinator-team lookups). Implements
 `IUserMerge`. Invalidates the User+Profile read-model via
 `IUserInfoInvalidator`. No `IMemoryCache`.
 
@@ -124,7 +124,7 @@ No repository, no cache, no direct DB access. Section-internal
 `ITeamMessageOptionsProvider`: the teams a viewer may send a facilitated message
 for — active teams the viewer coordinates whose linked Google Group is synced.
 Cross-section reads via `ITeamServiceRead.GetTeamsAsync` and
-`ITeamResourceService.GetResourcesByTeamIdsAsync` (GoogleIntegration); it touches
+`ITeamResourceServiceRead.GetResourcesByTeamIdsAsync` (GoogleIntegration); it touches
 neither section's tables.
 
 ## Human Lifecycle
@@ -214,7 +214,7 @@ a single cached read-model fanning out over the User + Profile section's
 unified persistence layer. Implements `IUserDataContributor`,
 `IUserMerge`.
 
-Cross-section calls via `IAdminAuthorizationService`. No direct
+Cross-section calls via `IAdminAuthorizationService` and `IAuditLogService` (per-member historical participation import and admin stub-profile creation after save). No direct
 `IMemoryCache` — caching is in the Singleton decorator.
 
 ### CachingUserService (Singleton, `Humans.Users.Data`)
@@ -263,6 +263,12 @@ Idempotent provisioning for import jobs. Uses ASP.NET `UserManager<User>`
 for password / identity primitives. Cross-section calls via
 `IUserEmailService`, `IUserService`, `IAuditLogService`. No cache.
 
+New import account creation wraps User, provisioned UserEmail and Profile in one transaction, audits after local commit, then refreshes UserInfo after commit/rollback. Unverified replacements retain their existing outer transaction and refresh.
+
+Import and magic-link retry matches run the idempotent profile ensure before returning the existing account; successful repairs emit `StubProfileBackfilled` without duplicating accounts or overwriting an existing Profile.
+
+Unverified import replacements run deletion and provisioning in one serializable ambient transaction, through existing owned services/repositories. `IUserInfoInvalidator` refreshes all affected users after commit or rollback.
+
 ### AccountDeletionService (Scoped)
 
 No repository. GDPR right-to-deletion orchestrator. Fans out over
@@ -292,7 +298,7 @@ No cache on the service itself.
 ### UserParticipationBackfillService (Scoped)
 
 No repository. Fan-out over `IUserServiceInternal` and `ISettingsService`
-(active event settings) to backfill `EventParticipations`. No direct DB access, no cache.
+(active event settings) to preview valid CSV rows and, only after operator confirmation, backfill `EventParticipations` with the acting admin. No direct DB access, no cache.
 
 ### AccountMergeService (Scoped)
 
@@ -329,7 +335,7 @@ Detection-only: loads the cached `UserInfo` read-model via
 gmail/googlemail equivalence), then counts active teams / role assignments
 per involved user. Resolution is delegated to
 `AccountMergeService.MergeAsync`. **No DB access.** Cross-section calls via
-`IUserService`, `ITeamService`, `IRoleAssignmentService`. No cache.
+`IUserService`, `ITeamService`, `IRoleAssignmentServiceRead`. No cache.
 
 ### ExternalLoginService (Scoped)
 
@@ -356,7 +362,7 @@ Repository: `IUserRepository`.
 Operator-driven BurnerName/legal-name backfill: finds `User`/`Profile`
 pairs where the User row is missing a name the Profile carries, then
 re-saves the Profile through the normal dual-write path. Cross-section
-calls via `IUserService` (`GetAllUserInfosAsync`, for email display only).
+calls via `IUserService` (`GetAllUserInfosAsync`, for email display only) and `IAuditLogService` (actor-attributed `UserNamesBackfilled` per saved member).
 No `IMemoryCache`.
 
 ### UsersAudienceService (Scoped)

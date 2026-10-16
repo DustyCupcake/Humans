@@ -1,3 +1,4 @@
+using System.Transactions;
 using Humans.AuditLog.Contracts;
 using Humans.Users.Data.Repositories;
 using Humans.Users.Contracts;
@@ -11,14 +12,51 @@ internal sealed class AccountProvisioningService(
     IUserRepository userRepository,
     IUserEmailService userEmailService,
     IUserServiceInternal userService,
+    IUserInfoInvalidator userInfoInvalidator,
     UserManager<User> userManager,
     IAuditLogService auditLogService,
     IClock clock,
     ILogger<AccountProvisioningService> logger) : IAccountProvisioningService
 {
-    public async Task<AccountProvisioningResult> FindOrCreateUserByEmailAsync(
-        string email, string? displayName, ContactSource source,
+    public Task<AccountProvisioningResult> FindOrCreateUserByEmailAsync(
+        string email, string? displayName, ContactSource source, CancellationToken ct = default)
+        => FindOrCreateCoreAsync(email, displayName, source, ct);
+
+    public async Task<AccountProvisioningResult> ReplaceUnverifiedEmailAndProvisionAsync(
+        Guid userId, Guid emailId, string email, string? displayName, ContactSource source,
         CancellationToken ct = default)
+    {
+        var affectedUsers = new HashSet<Guid> { userId };
+        try
+        {
+            using var transaction = new TransactionScope(TransactionScopeOption.Required,
+                new TransactionOptions { IsolationLevel = IsolationLevel.Serializable },
+                TransactionScopeAsyncFlowOption.Enabled);
+            var rows = await userEmailService.FindByAddressAsync(email, aliased: true, verifiedOnly: false, ct);
+            var row = rows.SingleOrDefault(r => r.Id == emailId && r.UserId == userId);
+            if (rows.Count != 1 || row is null || row.IsVerified || !string.IsNullOrEmpty(row.Provider))
+                throw new InvalidOperationException("The unverified email replacement plan is stale.");
+            if (!(await userEmailService.DeleteEmailAsync(userId, emailId, ct)).Succeeded)
+                throw new InvalidOperationException("The planned unverified email could not be removed.");
+            var result = await FindOrCreateCoreAsync(email, displayName, source, ct, affectedUsers);
+            await auditLogService.LogAsync(AuditAction.UserEmailDeleted, nameof(UserEmail), emailId,
+                $"Replaced unverified email {email} with verified import account {result.User.Id} from {source}",
+                nameof(AccountProvisioningService), relatedEntityId: userId, relatedEntityType: nameof(User));
+            transaction.Complete();
+            return result;
+        }
+        finally
+        {
+            // SaveChanges/decorators refresh during writes. Rebuild after transaction disposal,
+            // including on rollback, so no cached entry retains uncommitted row state.
+            foreach (var affectedUser in affectedUsers)
+                await userInfoInvalidator.InvalidateAsync(affectedUser, CancellationToken.None);
+        }
+    }
+
+    private async Task<AccountProvisioningResult> FindOrCreateCoreAsync(
+        string email, string? displayName, ContactSource source, CancellationToken ct,
+        HashSet<Guid>? affectedUsers = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
 
@@ -41,12 +79,20 @@ internal sealed class AccountProvisioningService(
                     "Found existing account {UserId} via UserEmail match for {Email} (source: {Source})",
                     existingUser.Id, email, source);
 
+                affectedUsers?.Add(existingUser.Id);
+
                 // Layer ContactSource onto self-registered users.
                 if (existingUser.ContactSource is null)
                 {
                     await userRepository.SetContactSourceIfNullAsync(existingUser.Id, source, ct);
                     existingUser.ContactSource = source;
                 }
+
+                // User/email may have committed before profile creation failed. Retry the
+                // idempotent final step before reporting a successfully provisioned account.
+                if (await userService.EnsureStubProfileAsync(existingUser.Id, ct: ct))
+                    await auditLogService.LogAsync(AuditAction.StubProfileBackfilled, nameof(User), existingUser.Id,
+                        $"Completed missing profile provisioning from {source}.", nameof(AccountProvisioningService));
 
                 return new AccountProvisioningResult(existingUser, Created: false);
             }
@@ -59,6 +105,7 @@ internal sealed class AccountProvisioningService(
         var now = clock.GetCurrentInstant();
 
         var newUserId = Guid.NewGuid();
+        affectedUsers?.Add(newUserId);
         var newUser = new User
         {
             Id = newUserId,
@@ -68,31 +115,47 @@ internal sealed class AccountProvisioningService(
             CreatedAt = now,
         };
 
-        var result = await userManager.CreateAsync(newUser);
-        if (!result.Succeeded)
+        try
         {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new InvalidOperationException($"Failed to create account for {email}: {errors}");
+            using (var transaction = new TransactionScope(TransactionScopeOption.Required,
+                new TransactionOptions { IsolationLevel = IsolationLevel.Serializable },
+                TransactionScopeAsyncFlowOption.Enabled))
+            {
+                var result = await userManager.CreateAsync(newUser);
+                if (!result.Succeeded)
+                {
+                    var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                    throw new InvalidOperationException($"Failed to create account for {email}: {errors}");
+                }
+
+                // see nobodies-collective/Humans#687
+                await userEmailService.AddProvisionedEmailAsync(newUser.Id, email, ct);
+
+                // Stub Profile invariant; UserService owns UserInfo storage/cache.
+                // Import path seeds no names; the empty stub is filled in during onboarding.
+                await userService.EnsureStubProfileAsync(newUser.Id, ct: ct);
+                transaction.Complete();
+            }
+
+            await auditLogService.LogAsync(
+                AuditAction.ContactCreated,
+                nameof(User), newUser.Id,
+                $"Account pre-created from {source} — {email}",
+                nameof(AccountProvisioningService));
+
+            logger.LogInformation(
+                "Created new account {UserId} for {Email} (source: {Source}, displayName: {DisplayName})",
+                newUser.Id, email, source, resolvedDisplayName);
+
+            return new AccountProvisioningResult(newUser, Created: true);
         }
-
-        // see nobodies-collective/Humans#687
-        await userEmailService.AddProvisionedEmailAsync(newUser.Id, email, ct);
-
-        // Stub Profile invariant; UserService owns UserInfo storage/cache.
-        // Import path seeds no names; the empty stub is filled in during onboarding.
-        await userService.EnsureStubProfileAsync(newUser.Id, ct: ct);
-
-        await auditLogService.LogAsync(
-            AuditAction.ContactCreated,
-            nameof(User), newUser.Id,
-            $"Account pre-created from {source} — {email}",
-            nameof(AccountProvisioningService));
-
-        logger.LogInformation(
-            "Created new account {UserId} for {Email} (source: {Source}, displayName: {DisplayName})",
-            newUser.Id, email, source, resolvedDisplayName);
-
-        return new AccountProvisioningResult(newUser, Created: true);
+        finally
+        {
+            // The replacement path's outer transaction refreshes after its disposal.
+            // Ordinary imports finish their own commit/rollback before rebuilding UserInfo.
+            if (affectedUsers is null)
+                await userInfoInvalidator.InvalidateAsync(newUserId, CancellationToken.None);
+        }
     }
 
     public async Task<MagicLinkSignupCompletionResult> CompleteMagicLinkSignupAsync(
@@ -122,6 +185,10 @@ internal sealed class AccountProvisioningService(
                     User: null);
             }
 
+            if (await userService.EnsureStubProfileAsync(
+                existingUser.Id, burnerName.Trim(), firstName.Trim(), lastName.Trim(), ct))
+                await auditLogService.LogAsync(AuditAction.StubProfileBackfilled, nameof(User), existingUser.Id,
+                    "Completed missing profile after interrupted magic-link signup.", existingUser.Id);
             await userService.RecordLoginAsync(existingUser.Id, ct);
             return new MagicLinkSignupCompletionResult(
                 MagicLinkSignupCompletionOutcome.ExistingUser,

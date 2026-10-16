@@ -6,6 +6,25 @@ namespace Humans.Workgroups.Data;
 
 internal sealed class WorkgroupRepository(IDbContextFactory<WorkgroupsDbContext> factory) : IWorkgroupRepository
 {
+    public async Task<string?> GetRootDriveFolderIdAsync(CancellationToken ct = default)
+    {
+        await using var ctx = await factory.CreateDbContextAsync(ct);
+        return await ctx.Settings.AsNoTracking()
+            .Where(s => s.Id == WorkgroupsSettings.SingletonId)
+            .Select(s => s.RootDriveFolderId).SingleOrDefaultAsync(ct);
+    }
+
+    public async Task SetRootDriveFolderIdAsync(string folderId, CancellationToken ct = default)
+    {
+        await using var ctx = await factory.CreateDbContextAsync(ct);
+        var setting = await ctx.Settings.SingleOrDefaultAsync(s => s.Id == WorkgroupsSettings.SingletonId, ct);
+        if (setting is null)
+            ctx.Settings.Add(new WorkgroupsSettings { RootDriveFolderId = folderId });
+        else
+            setting.RootDriveFolderId = folderId;
+        await ctx.SaveChangesAsync(ct);
+    }
+
     // ── Register graph ────────────────────────────────────────────────────
 
     public async Task<WorkgroupsGraph> GetGraphAsync(CancellationToken ct = default)
@@ -322,15 +341,15 @@ internal sealed class WorkgroupRepository(IDbContextFactory<WorkgroupsDbContext>
             m.UserId = targetUserId;
 
         // The fold can leave two current memberships of the same group; the unique
-        // filtered index would refuse them. Keep the earliest join, and keep Coordinator
-        // if either row carried it.
+        // filtered index would refuse them. Keep the earliest join, an approved row over a
+        // pending one, and keep Coordinator if either row carried it.
         var duplicates = affected
             .Where(m => m.LeftAt == null)
             .GroupBy(m => m.WorkgroupId)
             .Where(g => g.Count() > 1)
             .SelectMany(g =>
             {
-                var keep = g.MinBy(m => m.JoinedAt)!;
+                var keep = g.Where(m => m.IsPending != true).MinBy(m => m.JoinedAt) ?? g.MinBy(m => m.JoinedAt)!;
                 if (g.Any(m => m.Role == WorkgroupMemberRole.Coordinator))
                     keep.Role = WorkgroupMemberRole.Coordinator;
                 return g.Where(m => m != keep);

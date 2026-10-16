@@ -1,4 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
+using System.Resources;
+using Humans.AuditLog.Contracts;
 using Humans.Base.Attributes;
 using Humans.Base.Extensions;
 using Humans.Email.Contracts;
@@ -19,7 +22,7 @@ namespace Humans.Campaigns.Services;
 /// <summary>
 /// The Campaigns section's service. Implements the cross-assembly
 /// <see cref="ICampaignService"/> contract; the section's own controller injects this
-/// concrete type for the members that stay inside (design §15 step 5).
+/// concrete type for the members that stay inside.
 /// </summary>
 internal sealed class CampaignService(
     ICampaignRepository repository,
@@ -31,9 +34,11 @@ internal sealed class CampaignService(
     CampaignsEmails emailMessages,
     ITicketDiscountCodes ticketDiscountCodes,
     IClock clock,
+    IAuditLogService audit,
     ILogger<CampaignService> logger) : ICampaignService, IUserDataContributor, IUserMerge
 {
-    /// <summary>GDPR export JSON key for this contributor's data.</summary>
+    private static readonly ResourceManager NoticeResources = new(typeof(CampaignsResource));
+
     internal const string CampaignGrants = "CampaignGrants";
 
     public async Task<CampaignCreateResult> CreateAsync(string title, string? description,
@@ -58,6 +63,8 @@ internal sealed class CampaignService(
         };
 
         await repository.AddCampaignAsync(campaign, ct);
+        await audit.LogAsync(AuditAction.CampaignCreated, "Campaign", campaign.Id,
+            "Created campaign.", createdByUserId);
 
         logger.LogInformation("Campaign {CampaignId} created: {Title}", campaign.Id, title);
         return new CampaignCreateResult(true, campaign);
@@ -133,6 +140,7 @@ internal sealed class CampaignService(
             campaign.Status);
 
     public async Task<CampaignUpdateResult> UpdateAsync(
+        Guid actorUserId,
         Guid id,
         string title,
         string? description,
@@ -156,6 +164,9 @@ internal sealed class CampaignService(
         campaign.ReplyToAddress = string.IsNullOrWhiteSpace(replyToAddress) ? null : replyToAddress.Trim();
 
         await repository.UpdateCampaignAsync(campaign, ct);
+
+        await audit.LogAsync(AuditAction.CampaignUpdated, "Campaign", id,
+            "Updated campaign configuration.", actorUserId);
 
         logger.LogInformation("Campaign {CampaignId} updated", id);
         return new CampaignUpdateResult(true);
@@ -232,7 +243,7 @@ internal sealed class CampaignService(
     public Task<Guid?> GetCampaignIdForGrantAsync(Guid grantId, CancellationToken ct = default) =>
         repository.GetCampaignIdForGrantAsync(grantId, ct);
 
-    public async Task<CampaignImportResult> ImportCodesAsync(Guid campaignId, IEnumerable<string> codes, CancellationToken ct = default)
+    public async Task<CampaignImportResult> ImportCodesAsync(Guid actorUserId, Guid campaignId, IEnumerable<string> codes, CancellationToken ct = default)
     {
         var campaign = await repository.FindForMutationWithCodesAsync(campaignId, ct);
         if (campaign is null)
@@ -274,6 +285,8 @@ internal sealed class CampaignService(
         }
 
         await repository.AddCampaignCodesAsync(newCodes, ct);
+        await audit.LogAsync(AuditAction.CampaignCodesImported, "Campaign", campaignId,
+            $"Imported {newCodes.Count} codes.", actorUserId);
 
         logger.LogInformation(
             "Campaign {CampaignId}: imported {Imported} codes, skipped {Skipped} duplicates",
@@ -281,38 +294,9 @@ internal sealed class CampaignService(
         return new CampaignImportResult(true, imported, skipped);
     }
 
-    private async Task ImportGeneratedCodesAsync(Guid campaignId, IReadOnlyList<string> codes,
-        CancellationToken ct = default)
-    {
-        var campaign = await repository.FindForMutationWithCodesAsync(campaignId, ct)
-            ?? throw new InvalidOperationException($"Campaign {campaignId} not found.");
-
-        var now = clock.GetCurrentInstant();
-        var maxOrder = campaign.Codes.Any() ? campaign.Codes.Max(c => c.ImportOrder) : 0;
-        var newCodes = new List<CampaignCode>(codes.Count);
-
-        foreach (var code in codes)
-        {
-            maxOrder++;
-            newCodes.Add(new CampaignCode
-            {
-                Id = Guid.NewGuid(),
-                CampaignId = campaignId,
-                Code = code,
-                ImportOrder = maxOrder,
-                ImportedAt = now
-            });
-        }
-
-        await repository.AddCampaignCodesAsync(newCodes, ct);
-
-        logger.LogInformation(
-            "Campaign {CampaignId}: imported {Count} vendor-generated codes",
-            campaignId, codes.Count);
-    }
-
     [ExternalWrite]
     public async Task<CampaignGenerateCodesResult> GenerateAndImportDiscountCodesAsync(
+        Guid actorUserId,
         Guid campaignId,
         int count,
         string discountType,
@@ -337,12 +321,14 @@ internal sealed class CampaignService(
         // only door to ticketing.
         var request = new TicketDiscountCodeRequest(count, parsedKind, discountValue, ExpiresAt: null);
         var codes = await ticketDiscountCodes.GenerateAsync(request, ct);
-        await ImportGeneratedCodesAsync(campaignId, codes, ct);
+        var imported = await ImportCodesAsync(actorUserId, campaignId, codes, ct);
 
-        return new CampaignGenerateCodesResult(true, GeneratedCount: codes.Count);
+        return imported.Success
+            ? new CampaignGenerateCodesResult(true, GeneratedCount: imported.Imported)
+            : new CampaignGenerateCodesResult(false, imported.ErrorKey);
     }
 
-    public async Task<CampaignUpdateResult> ActivateAsync(Guid campaignId, CancellationToken ct = default)
+    public async Task<CampaignUpdateResult> ActivateAsync(Guid actorUserId, Guid campaignId, CancellationToken ct = default)
     {
         var campaign = await repository.FindForMutationWithCodesAsync(campaignId, ct);
         if (campaign is null)
@@ -362,11 +348,14 @@ internal sealed class CampaignService(
         campaign.Status = CampaignStatus.Active;
         await repository.UpdateCampaignAsync(campaign, ct);
 
+        await audit.LogAsync(AuditAction.CampaignActivated, "Campaign", campaignId,
+            "Activated campaign.", actorUserId);
+
         logger.LogInformation("Campaign {CampaignId} activated", campaignId);
         return new CampaignUpdateResult(true);
     }
 
-    public async Task<CampaignUpdateResult> CompleteAsync(Guid campaignId, CancellationToken ct = default)
+    public async Task<CampaignUpdateResult> CompleteAsync(Guid actorUserId, Guid campaignId, CancellationToken ct = default)
     {
         var campaign = await repository.FindForMutationAsync(campaignId, ct);
         if (campaign is null)
@@ -378,6 +367,9 @@ internal sealed class CampaignService(
         campaign.Status = CampaignStatus.Completed;
         await repository.UpdateCampaignAsync(campaign, ct);
 
+        await audit.LogAsync(AuditAction.CampaignCompleted, "Campaign", campaignId,
+            "Completed campaign.", actorUserId);
+
         logger.LogInformation("Campaign {CampaignId} completed", campaignId);
         return new CampaignUpdateResult(true);
     }
@@ -385,9 +377,6 @@ internal sealed class CampaignService(
     public async Task<WaveSendPreview> PreviewWaveSendAsync(Guid campaignId, Guid teamId,
         CancellationToken ct = default)
     {
-        _ = await repository.FindForMutationAsync(campaignId, ct)
-            ?? throw new InvalidOperationException($"Campaign {campaignId} not found.");
-
         var activeTeamUserIds = await GetActiveTeamUserIdsAsync(teamId, ct);
 
         var alreadyGrantedSet = await repository.GetAlreadyGrantedUserIdsAsync(campaignId, ct);
@@ -406,7 +395,7 @@ internal sealed class CampaignService(
             CodesRemainingAfterSend: availableCodes - eligibleCount);
     }
 
-    public async Task<CampaignSendWaveResult> SendWaveAsync(Guid campaignId, Guid teamId, CancellationToken ct = default)
+    public async Task<CampaignSendWaveResult> SendWaveAsync(Guid actorUserId, Guid campaignId, Guid teamId, CancellationToken ct = default)
     {
         var campaign = await repository.FindForMutationAsync(campaignId, ct);
         if (campaign is null)
@@ -474,6 +463,9 @@ internal sealed class CampaignService(
                 LatestEmailAt = now
             };
             await repository.AddGrantAndSaveAsync(grant, ct);
+            await audit.LogAsync(AuditAction.CampaignWaveSent, "Campaign", campaignId,
+                $"Assigned grant {grant.Id} in wave to team {teamId}.", actorUserId,
+                relatedEntityId: userId, relatedEntityType: "User");
             grantedUserIds.Add(userId);
 
             try
@@ -503,44 +495,60 @@ internal sealed class CampaignService(
         if (grantedUserIds.Count == 0)
             return new CampaignSendWaveResult(true, SentCount: 0);
 
-        try
+        foreach (var recipients in grantedUserIds.GroupBy(
+            id => users[id].PreferredLanguage.IsSupportedCultureCode()
+                ? users[id].PreferredLanguage : CultureCatalog.DefaultCultureCode,
+            StringComparer.Ordinal))
         {
-            var title = $"You received a code from campaign: {campaign.Title}";
-            var body = "Check your email for your campaign code.";
-            if (title.EnumerateRunes().Count() > 200)
+            try
             {
-                body = string.Concat(title, "\n\n", body);
-                title = string.Concat(title.EnumerateRunes().Take(199)) + "…";
-            }
+                var culture = CultureInfo.GetCultureInfo(recipients.Key);
+                var title = string.Format(culture,
+                    NoticeResources.GetString("Campaigns_Notification_ReceivedTitle", culture)!, campaign.Title);
+                var body = NoticeResources.GetString("Campaigns_Notification_ReceivedBody", culture)!;
+                if (title.EnumerateRunes().Count() > 200)
+                {
+                    body = string.Concat(title, "\n\n", body);
+                    title = string.Concat(title.EnumerateRunes().Take(199)) + "…";
+                }
 
-            await notificationService.SendAsync(
-                NotificationSource.CampaignReceived,
-                NotificationClass.Informational,
-                NotificationPriority.Normal,
-                title,
-                grantedUserIds,
-                body: body,
-                cancellationToken: ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to dispatch CampaignReceived notifications for campaign {CampaignId}", campaignId);
+                await notificationService.SendAsync(
+                    NotificationSource.CampaignReceived,
+                    NotificationClass.Informational,
+                    NotificationPriority.Normal,
+                    title,
+                    recipients.ToList(),
+                    body: body,
+                    actionUrl: "/Profile/Me",
+                    actionLabel: NoticeResources.GetString("Campaigns_Notification_MyCodes", culture),
+                    cancellationToken: ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to dispatch CampaignReceived notifications for campaign {CampaignId} in {Culture}",
+                    campaignId, recipients.Key);
+            }
         }
 
         return new CampaignSendWaveResult(true, SentCount: grantedUserIds.Count);
     }
 
-    public async Task ResendToGrantAsync(Guid grantId, CancellationToken ct = default)
+    public async Task ResendToGrantAsync(Guid actorUserId, Guid grantId, CancellationToken ct = default)
     {
         var grant = await repository.GetGrantForResendAsync(grantId, ct)
             ?? throw new InvalidOperationException($"Grant {grantId} not found.");
 
         var now = clock.GetCurrentInstant();
-        await repository.UpdateGrantStatusAsync(grantId, EmailOutboxStatus.Queued, now, ct);
+        if (await repository.UpdateGrantStatusAsync(grantId, EmailOutboxStatus.Queued, now, ct))
+        {
+            await audit.LogAsync(AuditAction.CampaignGrantResent, "CampaignGrant", grantId,
+                $"Started resend for campaign {grant.CampaignId}.", actorUserId,
+                relatedEntityId: grant.UserId, relatedEntityType: "User");
+        }
 
         try
         {
@@ -627,7 +635,7 @@ internal sealed class CampaignService(
         return new CampaignCodeTrackingData(summaries, grantRows);
     }
 
-    public async Task RetryAllFailedAsync(Guid campaignId, CancellationToken ct = default)
+    public async Task RetryAllFailedAsync(Guid actorUserId, Guid campaignId, CancellationToken ct = default)
     {
         var failedGrants = await repository.GetFailedGrantsForRetryAsync(campaignId, ct);
         if (failedGrants.Count == 0)
@@ -644,7 +652,12 @@ internal sealed class CampaignService(
         // grants whose enqueue throws, leaving them un-retriable.
         foreach (var grant in failedGrants)
         {
-            await repository.UpdateGrantStatusAsync(grant.GrantId, EmailOutboxStatus.Queued, now, ct);
+            if (await repository.UpdateGrantStatusAsync(grant.GrantId, EmailOutboxStatus.Queued, now, ct))
+            {
+                await audit.LogAsync(AuditAction.CampaignGrantResent, "CampaignGrant", grant.GrantId,
+                    $"Started retry for campaign {campaignId}.", actorUserId,
+                    relatedEntityId: grant.UserId, relatedEntityType: "User");
+            }
 
             if (!users.TryGetValue(grant.UserId, out var user))
             {

@@ -118,6 +118,7 @@ public class BackdoorFinanceControllerTests
         {
             Id = id ?? Guid.NewGuid(),
             SubmitterUserId = submitterUserId ?? Guid.NewGuid(),
+            HoldedAccountNumber = 0,
             BudgetCategoryId = Guid.NewGuid(),
             BudgetYearId = Guid.NewGuid(),
             Status = status,
@@ -246,10 +247,10 @@ public class BackdoorFinanceControllerTests
         var report2026 = Report();
         var report2025 = Report();
         _expenses.GetReviewQueueAsync(userId, true, Arg.Any<CancellationToken>()).Returns([report2026, report2025]);
-        _budget.GetYearByIdAsync(report2026.BudgetYearId).Returns(
-            new BudgetYearDetail(report2026.BudgetYearId, "2026", "2026", BudgetYearStatus.Active, false, []));
-        _budget.GetYearByIdAsync(report2025.BudgetYearId).Returns(
-            new BudgetYearDetail(report2025.BudgetYearId, "2025", "2025", BudgetYearStatus.Closed, false, []));
+        _budget.GetYearByIdAsync(report2026.BudgetYearId!.Value).Returns(
+            new BudgetYearDetail(report2026.BudgetYearId!.Value, "2026", "2026", BudgetYearStatus.Active, false, []));
+        _budget.GetYearByIdAsync(report2025.BudgetYearId!.Value).Returns(
+            new BudgetYearDetail(report2025.BudgetYearId!.Value, "2025", "2025", BudgetYearStatus.Closed, false, []));
 
         var result = await _sut.ExpenseReports("2026", null, Xunit.TestContext.Current.CancellationToken);
 
@@ -775,9 +776,7 @@ public class BackdoorFinanceControllerTests
         _expenses.GetReviewQueueAsync(userId, false, Arg.Any<CancellationToken>())
             .Returns([Report(submitterUserId: userId) with { Note = Tainted }]);
         var keys = Substitute.For<IBackdoorApiKeyService>();
-        keys.ResolveOwnerAsync("key", Arg.Any<CancellationToken>()).Returns(userId);
-        var roles = Substitute.For<IRoleAssignmentService>();
-        roles.GetActiveForUserAsync(userId, Arg.Any<CancellationToken>()).Returns([]);
+        keys.ResolveOwnerAsync("key", Arg.Any<CancellationToken>()).Returns(new BackdoorKeyOwner(userId, []));
 
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -788,7 +787,7 @@ public class BackdoorFinanceControllerTests
                 apm.FeatureProviders.Remove(apm.FeatureProviders.OfType<ControllerFeatureProvider>().Single());
                 apm.FeatureProviders.Add(new FinanceControllerOnly());
             });
-        builder.Services.AddSingleton(keys).AddSingleton(roles).AddScoped<BackdoorApiKeyAuthFilter>()
+        builder.Services.AddSingleton(keys).AddScoped<BackdoorApiKeyAuthFilter>()
             .AddSingleton(_expenses).AddSingleton(_finance).AddSingleton(_budget).AddSingleton(_auth)
             .AddSingleton(_users);
         await using var app = builder.Build();

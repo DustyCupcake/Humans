@@ -31,12 +31,10 @@ Repositories: `IGoogleResourceRepository`, `IGoogleSyncOutboxRepository`.
 | GoogleSyncOutboxEvents | R/W |
 
 Implements `IGoogleSyncService`. Cross-section calls via `IUserService`,
-`ITeamService`, `IUserEmailService`, `ISyncSettingsService`,
+`ITeamServiceRead`, `ISyncSettingsService`,
 `IAuditLogService`, `IGoogleDirectoryClient`, `IGoogleDrivePermissionsClient`,
-`IGoogleGroupProvisioningClient`, `IGoogleGroupSync` (sync orchestrator),
-`ITeamResourceGoogleClient`, `IGoogleRemovalNotificationService`. Lazy
-`IServiceProvider` resolution for parallel/per-batch scope creation. No
-`IMemoryCache`.
+`IGoogleGroupProvisioningClient`, `IGoogleGroupSync`, `IGoogleDriveSync`,
+and `IGoogleDriveAccessSource` (source-owned grant levels). No cache.
 
 ### GoogleGroupSyncService (Scoped)
 
@@ -51,14 +49,7 @@ direct DB access, no cache.
 
 ### GoogleDriveAccessSyncService (Scoped)
 
-No repository directly — operates over the `IGoogleDrivePermissionsClient`
-connector and the in-process `IEnumerable<IGoogleDriveAccessSource>` (empty
-until a consumer section registers one, e.g. Workgroups). Cross-section calls
-via `IUserServiceRead`, `IUserEmailService`, `ISyncSettingsService`,
-`IAuditLogService`, `IGoogleRemovalNotificationService`,
-`IGoogleDriveAccessSyncScheduler`. No direct DB access, no cache. Mirrors
-`GoogleGroupSyncService` for source-claimed Drive folders; the Teams-keyed
-`google_resources` Drive path stays on `GoogleWorkspaceSyncService`.
+Uses its own `IGoogleResourceRepository` to load linked Drive metadata and record errors/sync stamps. Reconciles `IGoogleDriveAccessSource` claims from Teams and Workgroups through `IGoogleDrivePermissionsClient`; the connector never derives team membership. Cross-section calls use `IUserService`, `IUserEmailService`, `ITeamServiceRead` (retirement status only), `ISyncSettingsService`, `IAuditLogService`, `IGoogleSyncLogService`, and `IGoogleRemovalNotificationService`. Resource retirement goes through the existing `ITeamResourceService` audit path. No cache.
 
 ### GoogleAdminService (Scoped)
 
@@ -169,7 +160,7 @@ Sole owner of `google_resources`. All consumers call
 HUM0008/HUM0009/HUM0025. Cross-section calls via
 `ITeamServiceRead`, `ITeamResourceGoogleClient`, `IGoogleDrivePermissionsClient`,
 `IAuditLogService`, plus `IServiceProvider` to lazy-resolve
-`IRoleAssignmentService` (breaks a DI cycle). No cache.
+`IRoleAssignmentServiceRead` (breaks a DI cycle). No cache.
 
 ### GoogleSyncOutboxProcessor (Scoped, `internal`)
 

@@ -23,7 +23,6 @@ namespace Humans.Budget.Data;
 /// <para>
 /// <c>budget_audit_logs</c> is append-only per §12 — the only surface is the
 /// reads (<see cref="GetAuditLogAsync"/>,
-/// <see cref="GetAuditLogEntriesForUserAsync"/>,
 /// <see cref="GetAuditLogEntriesForUserIdsAsync"/>). Each mutation method
 /// writes its own audit entries so they commit in the same <c>SaveChanges</c>
 /// as the business change. A null actor on an entry means automation (the
@@ -64,7 +63,7 @@ internal interface IBudgetRepository : IRepository
     Task CreateYearWithScaffoldAsync(BudgetYearDraft draft, CancellationToken ct = default);
 
     /// <summary>
-    /// Updates the free-text fields on a budget year (<c>Year</c>, <c>Name</c>)
+    /// Updates the free-text fields on a budget year (<c>Year</c>, <c>Name</c>, <c>VendorEventId</c>)
     /// and appends field-level audit entries for any that changed. Atomic.
     /// Returns <c>true</c> if the year existed, <c>false</c> otherwise.
     /// </summary>
@@ -72,6 +71,7 @@ internal interface IBudgetRepository : IRepository
         Guid yearId,
         string year,
         string name,
+        string? vendorEventId,
         Guid actorUserId,
         Instant now,
         CancellationToken ct = default);
@@ -267,12 +267,6 @@ internal interface IBudgetRepository : IRepository
     /// </summary>
     Task<TicketingProjection?> GetTicketingProjectionAsync(Guid budgetGroupId, CancellationToken ct = default);
 
-    /// <summary>
-    /// Returns a budget group (detached, no navs). Used by callers that need
-    /// just flags (e.g., <c>IsTicketingGroup</c>) without the full graph.
-    /// </summary>
-    Task<BudgetGroup?> GetGroupByIdAsync(Guid groupId, CancellationToken ct = default);
-
     // Ticketing Projection — atomic mutations
 
     /// <summary>
@@ -339,17 +333,8 @@ internal interface IBudgetRepository : IRepository
         Guid? budgetYearId, CancellationToken ct = default);
 
     /// <summary>
-    /// Returns every budget audit log entry authored by the given user for
-    /// GDPR export. Read-only.
-    /// </summary>
-    Task<IReadOnlyList<BudgetAuditLog>> GetAuditLogEntriesForUserAsync(
-        Guid userId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Multi-id overload of <see cref="GetAuditLogEntriesForUserAsync"/> used
-    /// by the service-layer chain-follow read path so a fold-target's GDPR
-    /// export transparently includes audit entries that stayed attributed
-    /// to merged-source tombstones. Returns every entry authored by any of
+    /// GDPR export read: a fold-target's export includes audit entries that
+    /// stayed attributed to merged-source tombstones. Returns every entry authored by any of
     /// the supplied ids, ordered by <c>OccurredAt</c> descending.
     /// </summary>
     Task<IReadOnlyList<BudgetAuditLog>> GetAuditLogEntriesForUserIdsAsync(

@@ -4,7 +4,6 @@ using Humans.Base.Models.Tables;
 // @e2e: board.spec.ts
 // @e2e: profile.spec.ts
 using Humans.Base.Controllers;
-using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Web;
 using AngleSharp.Dom;
@@ -89,12 +88,6 @@ internal sealed class ProfileController(
         [".heic"] = "image/heic",
         [".heif"] = "image/heif",
         [".avif"] = "image/avif"
-    };
-    private static readonly System.Text.Json.JsonSerializerOptions ExportJsonOptions = new()
-    {
-        WriteIndented = true,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
     };
 
     // ─── Own Profile (Me) ────────────────────────────────────────────
@@ -338,11 +331,12 @@ internal sealed class ProfileController(
 
         var result = applicationDecisionService.ValidateSubmission(
             model.SelectedTier, model.ApplicationMotivation,
-            model.ApplicationSignificantContribution, model.ApplicationRoleUnderstanding);
+            model.ApplicationSignificantContribution, model.ApplicationRoleUnderstanding, model.ApplicationAdditionalInfo);
 
         if (result.Success)
             return null;
 
+        logger.LogWarning("Profile tier application validation refused for tier {Tier}: {ErrorKey}", model.SelectedTier, result.ErrorKey);
         switch (result.ErrorKey)
         {
             case "MotivationRequired":
@@ -356,6 +350,22 @@ internal sealed class ProfileController(
             case "RoleUnderstandingRequired":
                 ModelState.AddModelError(nameof(model.ApplicationRoleUnderstanding),
                     sharedLocalizer["Application_RoleUnderstandingRequired"].Value);
+                break;
+            case "MotivationLength":
+                ModelState.AddModelError(nameof(model.ApplicationMotivation),
+                    sharedLocalizer["Application_MotivationLength"].Value);
+                break;
+            case "AdditionalInfoTooLong":
+                ModelState.AddModelError(nameof(model.ApplicationAdditionalInfo),
+                    sharedLocalizer["Application_AdditionalInfoTooLong"].Value);
+                break;
+            case "SignificantContributionTooLong":
+                ModelState.AddModelError(nameof(model.ApplicationSignificantContribution),
+                    sharedLocalizer["Application_SignificantContributionTooLong"].Value);
+                break;
+            case "RoleUnderstandingTooLong":
+                ModelState.AddModelError(nameof(model.ApplicationRoleUnderstanding),
+                    sharedLocalizer["Application_RoleUnderstandingTooLong"].Value);
                 break;
             default:
                 ModelState.AddModelError(string.Empty, sharedLocalizer["Application_InvalidTier"].Value);
@@ -418,22 +428,19 @@ internal sealed class ProfileController(
     {
         var saveRequest = BuildProfileSaveRequest(model, pictureUpload);
 
-        try
-        {
-            var profileId = await profileEditorService.SaveProfileAsync(
-                userId, model.BurnerName, saveRequest);
-            return (profileId, null);
-        }
-        catch (ValidationException ex)
-        {
-            ModelState.AddModelError(string.Empty, ex.Message);
-            model.IsInitialSetup = isInitialSetup;
-            model.ShowPrivateFirst = string.IsNullOrEmpty(model.FirstName)
-                && string.IsNullOrEmpty(model.LastName)
-                && string.IsNullOrEmpty(model.EmergencyContactName);
-            ViewData["GoogleMapsApiKey"] = configuration.GetRequiredSetting(configRegistry, "GoogleMaps:ApiKey", "Google Maps", isSensitive: true);
-            return (Guid.Empty, View(model));
-        }
+        var result = await profileEditorService.SaveProfileAsync(
+            userId, model.BurnerName, saveRequest);
+        if (result.Succeeded) return (result.ProfileId!.Value, null);
+        var errorKey = result.ErrorKey;
+
+        ModelState.AddModelError(string.Empty, errorKey is not null
+            ? localizer[errorKey].Value : sharedLocalizer["Common_Error"].Value);
+        model.IsInitialSetup = isInitialSetup;
+        model.ShowPrivateFirst = string.IsNullOrEmpty(model.FirstName)
+            && string.IsNullOrEmpty(model.LastName)
+            && string.IsNullOrEmpty(model.EmergencyContactName);
+        ViewData["GoogleMapsApiKey"] = configuration.GetRequiredSetting(configRegistry, "GoogleMaps:ApiKey", "Google Maps", isSensitive: true);
+        return (Guid.Empty, View(model));
     }
 
     private async Task RunPostProfileSaveOrchestrationAsync(UserInfo user, ProfileViewModel model, bool isInitialSetup)
@@ -719,7 +726,7 @@ internal sealed class ProfileController(
 
         // Controller guards are the localized, field-targeted primary path for the
         // "Other text required iff Other selected" rule. SaveDietaryMedicalAsync
-        // throws ValidationException as a backstop for non-controller callers.
+        // returns an ordinary refusal as a backstop for non-controller callers.
         if (model.Allergies.Contains(DietaryMedicalViewModel.OtherOption) && string.IsNullOrWhiteSpace(model.AllergyOtherText))
         {
             ModelState.AddModelError(nameof(model.AllergyOtherText), localizer["Profile_DietaryMedical_AllergyOther_Required"].Value);
@@ -739,7 +746,13 @@ internal sealed class ProfileController(
 
             // Owner editing their own dietary + medical — write the six Profile
             // columns (the editor leaves all other profile fields untouched).
-            await profileEditorService.SaveDietaryMedicalAsync(user.Id, model.ToCommand());
+            var save = await profileEditorService.SaveDietaryMedicalAsync(user.Id, model.ToCommand());
+            if (!save.Succeeded)
+            {
+                ModelState.AddModelError(string.Empty,
+                    localizer[save.ErrorKey ?? "Profile_DietaryMedical_SaveFailed"].Value);
+                return View(model);
+            }
 
             // Signup-replay — the user was bounced here from
             // ShiftsController.ToggleDay by the dietary gate. After a
@@ -749,11 +762,6 @@ internal sealed class ProfileController(
             // Replay failure does NOT roll back the dietary save — the user can
             // retry the signup directly from /Shifts without re-entering it.
             return await ReplayShiftSignupAfterDietaryMedicalSaveAsync(user.Id, model);
-        }
-        catch (ValidationException ex)
-        {
-            ModelState.AddModelError(string.Empty, ex.Message);
-            return View(model);
         }
         catch (Exception ex)
         {
@@ -881,9 +889,7 @@ internal sealed class ProfileController(
         {
             var export = await gdprExportService.ExportForUserAsync(user.Id, ct);
 
-            var payload = BuildExportPayload(export);
-            var json = System.Text.Json.JsonSerializer.Serialize(payload, ExportJsonOptions);
-            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+            var bytes = GdprExportSerializer.Serialize(export);
             var fileName = $"nobodies-profiles-export-{clock.GetCurrentInstant().ToDateTimeUtc().ToInvariantDate()}.json";
 
             return File(bytes, "application/json", fileName);
@@ -899,22 +905,6 @@ internal sealed class ProfileController(
             return RedirectToAction(nameof(Privacy));
         }
     }
-
-    private static Dictionary<string, object?> BuildExportPayload(GdprExport export)
-    {
-        var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["ExportedAt"] = export.ExportedAt,
-            ["UserId"] = export.UserId,
-            ["MergedFromUserIds"] = export.MergedFromUserIds
-        };
-        foreach (var (section, data) in export.Sections)
-        {
-            payload[section] = data;
-        }
-        return payload;
-    }
-
 
     // ─── Helpers ─────────────────────────────────────────────────────
 

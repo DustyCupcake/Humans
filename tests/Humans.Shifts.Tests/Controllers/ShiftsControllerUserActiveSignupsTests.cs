@@ -66,8 +66,8 @@ public class ShiftsControllerUserActiveSignupsTests
         _burnSettings.GetByIdAsync(ActiveBurnId, Arg.Any<CancellationToken>()).Returns(ActiveBurn);
         _burnSettings.GetByIdAsync(PastBurnId, Arg.Any<CancellationToken>()).Returns(PastBurn);
 
-        _shiftMgmt.GetCoordinatorTeamIdsAsync(_userId).Returns([]);
-        _shiftMgmt.GetBrowseShiftsAsync(Arg.Any<ShiftBrowseQuery>()).Returns([]);
+        _shiftMgmt.GetCoordinatorTeamIdsAsync(_userId, Arg.Any<CancellationToken>()).Returns([]);
+        _shiftMgmt.GetBrowseShiftsAsync(Arg.Any<ShiftBrowseQuery>(), Arg.Any<CancellationToken>()).Returns([]);
         _shiftMgmt.GetTagsAsync().Returns([]);
         _shiftMgmt.GetDepartmentCoveragePiesAsync(
             Arg.Any<Guid>(), Arg.Any<LocalDate?>(), Arg.Any<LocalDate?>(), ct: Arg.Any<CancellationToken>())
@@ -77,6 +77,38 @@ public class ShiftsControllerUserActiveSignupsTests
 
         _shiftView.GetUserAsync(_userId, Arg.Any<CancellationToken>())
             .Returns(new ShiftUserView(_userId, null, null, null, [], []));
+    }
+
+    [HumansTheory]
+    [InlineData("coordinators")]
+    [InlineData("signups")]
+    [InlineData("browse")]
+    [InlineData("departments")]
+    public async Task BrowseColdReads_ObserveRequestCancellation(string boundary)
+    {
+        var controller = BuildSut();
+        using var aborted = new CancellationTokenSource();
+        await aborted.CancelAsync();
+        controller.HttpContext.RequestAborted = aborted.Token;
+        _signupService.GetByUserAsync(_userId, ct: Arg.Any<CancellationToken>()).Returns([]);
+
+        if (string.Equals(boundary, "coordinators", StringComparison.Ordinal))
+            _shiftMgmt.GetCoordinatorTeamIdsAsync(_userId, Arg.Any<CancellationToken>()).ReturnsForAnyArgs(Read<Guid>);
+        else if (string.Equals(boundary, "signups", StringComparison.Ordinal))
+            _signupService.GetByUserAsync(_userId, ct: Arg.Any<CancellationToken>()).ReturnsForAnyArgs(Read<ShiftSignup>);
+        else if (string.Equals(boundary, "browse", StringComparison.Ordinal))
+            _shiftMgmt.GetBrowseShiftsAsync(Arg.Any<ShiftBrowseQuery>(), Arg.Any<CancellationToken>()).ReturnsForAnyArgs(Read<UrgentShiftInfo>);
+        else
+            _shiftMgmt.GetDepartmentsWithRotasAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).ReturnsForAnyArgs(Read<(Guid, string)>);
+
+        var act = () => controller.Index(Guid.NewGuid(), null, null, null);
+        await act.Should().ThrowAsync<OperationCanceledException>();
+
+        static Task<IReadOnlyList<T>> Read<T>(NSubstitute.Core.CallInfo call)
+        {
+            call.Args().OfType<CancellationToken>().SingleOrDefault().ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<T>>([]);
+        }
     }
 
     [HumansTheory]
@@ -92,7 +124,7 @@ public class ShiftsControllerUserActiveSignupsTests
         using var aborted = new CancellationTokenSource();
         await aborted.CancelAsync();
         controller.HttpContext.RequestAborted = aborted.Token;
-        _signupService.GetByUserAsync(_userId).Returns([]);
+        _signupService.GetByUserAsync(_userId, ct: Arg.Any<CancellationToken>()).Returns([]);
         if (string.Equals(boundary, "viewer", StringComparison.Ordinal))
             _userService.GetUserInfoAsync(_userId, aborted.Token)
                 .Returns(ValueTask.FromCanceled<UserInfo?>(aborted.Token));
@@ -119,7 +151,7 @@ public class ShiftsControllerUserActiveSignupsTests
     {
         // Same DayOffset + StartTime in both burns: any difference in the rendered
         // instants can only come from the burn each row was resolved against.
-        _signupService.GetByUserAsync(_userId).Returns(
+        _signupService.GetByUserAsync(_userId, ct: Arg.Any<CancellationToken>()).Returns(
         [
             MakeSignup(ActiveBurnId, "Gate 2026", dayOffset: 1, new LocalTime(10, 0), SignupStatus.Confirmed),
             MakeSignup(PastBurnId, "Bar 2025", dayOffset: 1, new LocalTime(10, 0), SignupStatus.Pending),
@@ -150,7 +182,7 @@ public class ShiftsControllerUserActiveSignupsTests
     [HumansFact]
     public async Task Index_ManyRowsInOneBurn_ResolvesThatBurnOnce()
     {
-        _signupService.GetByUserAsync(_userId).Returns(
+        _signupService.GetByUserAsync(_userId, ct: Arg.Any<CancellationToken>()).Returns(
         [
             MakeSignup(ActiveBurnId, "A", dayOffset: 0, new LocalTime(9, 0), SignupStatus.Confirmed),
             MakeSignup(ActiveBurnId, "B", dayOffset: 1, new LocalTime(9, 0), SignupStatus.Confirmed),
@@ -169,7 +201,7 @@ public class ShiftsControllerUserActiveSignupsTests
         var unknownBurnId = Guid.NewGuid();
         _burnSettings.GetByIdAsync(unknownBurnId, Arg.Any<CancellationToken>()).Returns((BurnSettingsInfo?)null);
 
-        _signupService.GetByUserAsync(_userId).Returns(
+        _signupService.GetByUserAsync(_userId, ct: Arg.Any<CancellationToken>()).Returns(
         [
             MakeSignup(ActiveBurnId, "Keeper", dayOffset: 0, new LocalTime(9, 0), SignupStatus.Confirmed),
             MakeSignup(ActiveBurnId, "Bailed", dayOffset: 0, new LocalTime(9, 0), SignupStatus.Bailed),
@@ -179,6 +211,46 @@ public class ShiftsControllerUserActiveSignupsTests
         var model = await BuildBrowseModelAsync();
 
         Assert.Equal("Keeper", Assert.Single(model.UserActiveSignups).RotaName);
+    }
+
+    [HumansTheory]
+    [InlineData("en")]
+    [InlineData("es")]
+    [InlineData("de")]
+    [InlineData("it")]
+    [InlineData("fr")]
+    [InlineData("ca")]
+    public async Task BailRange_LocalizesRefusalKeysInTheMembersCulture(string culture)
+    {
+        const string key = "Shifts_BailRange_NotAuthorized";
+        using var scope = new Humans.Base.Extensions.CultureScope(culture);
+        var resources = new System.Resources.ResourceManager(typeof(ShiftsResource));
+        var translated = resources.GetString(key, System.Globalization.CultureInfo.CurrentUICulture)!;
+        _localizer[key].Returns(new LocalizedString(key, translated));
+        var blockId = Guid.NewGuid();
+        _signupService.BailRangeAsync(blockId, _userId, null).Returns(new BailRangeResult(key));
+        var controller = BuildSut();
+
+        (await controller.BailRange(blockId)).Should().BeOfType<RedirectToActionResult>();
+
+        translated.Should().NotBe(key);
+        controller.TempData["ErrorMessage"].Should().Be(translated);
+        controller.TempData.ContainsKey("SuccessMessage").Should().BeFalse();
+    }
+
+    [HumansFact]
+    public async Task BailRange_DependencyFaultIsNotDisplayedAsMemberFeedback()
+    {
+        var blockId = Guid.NewGuid();
+        var fault = new InvalidOperationException("database diagnostic");
+        _signupService.BailRangeAsync(blockId, _userId, null)
+            .Returns(Task.FromException<BailRangeResult>(fault));
+        var controller = BuildSut();
+
+        var action = () => controller.BailRange(blockId);
+
+        (await action.Should().ThrowAsync<InvalidOperationException>()).Which.Should().BeSameAs(fault);
+        controller.TempData.Should().BeEmpty();
     }
 
     private async Task<ShiftBrowseViewModel> BuildBrowseModelAsync()

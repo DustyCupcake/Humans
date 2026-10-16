@@ -48,11 +48,11 @@ internal sealed class TeamService(
     internal const string TeamEarlyEntry = "TeamEarlyEntry";
 
     // Lazy resolution — UserService injects ITeamService, closing the cycle.
-    private ITeamResourceService TeamResourceService
-        => serviceProvider.GetRequiredService<ITeamResourceService>();
+    private ITeamResourceServiceRead TeamResourceService
+        => serviceProvider.GetRequiredService<ITeamResourceServiceRead>();
 
-    private IRoleAssignmentService RoleAssignmentService
-        => serviceProvider.GetRequiredService<IRoleAssignmentService>();
+    private IRoleAssignmentServiceRead RoleAssignmentService
+        => serviceProvider.GetRequiredService<IRoleAssignmentServiceRead>();
 
     private IEmailService EmailService
         => serviceProvider.GetRequiredService<IEmailService>();
@@ -374,7 +374,7 @@ internal sealed class TeamService(
             .ToList();
     }
 
-    public async Task<Team> UpdateTeamAsync(
+    public async Task<TeamUpdateResult> UpdateTeamAsync(
         Guid teamId,
         string name,
         string? description,
@@ -390,48 +390,48 @@ internal sealed class TeamService(
         bool? earlyEntryEnabled = null,
         CancellationToken cancellationToken = default)
     {
-        var team = await repo.FindForMutationAsync(teamId, cancellationToken)
-            ?? throw new InvalidOperationException($"Team {teamId} not found");
+        var team = await repo.FindForMutationAsync(teamId, cancellationToken);
+        if (team is null) return new(ErrorMessage: $"Team {teamId} not found");
 
         if (team.IsSystemTeam)
         {
             team.Description = description;
             team.GoogleGroupPrefix = googleGroupPrefix;
             team.UpdatedAt = clock.GetCurrentInstant();
-            await repo.UpdateTeamAsync(team, cancellationToken);
-            return team;
+            var conflict = await repo.UpdateTeamAsync(team, cancellationToken);
+            return conflict == TeamUpdateConflict.None ? new(Team: team) : new(Conflict: conflict);
         }
 
         if (parentTeamId.HasValue)
         {
             if (parentTeamId.Value == teamId)
-                throw new InvalidOperationException("A team cannot be its own parent");
+                return new(ErrorMessage: "A team cannot be its own parent");
 
             var hasChildren = await repo.HasActiveChildrenAsync(teamId, cancellationToken);
             if (hasChildren)
-                throw new InvalidOperationException("This team has sub-teams and cannot become a child of another team");
+                return new(ErrorMessage: "This team has sub-teams and cannot become a child of another team");
 
-            var parent = await repo.GetByIdAsync(parentTeamId.Value, cancellationToken)
-                ?? throw new InvalidOperationException($"Parent team {parentTeamId.Value} not found");
+            var parent = await repo.GetByIdAsync(parentTeamId.Value, cancellationToken);
+            if (parent is null) return new(ErrorMessage: $"Parent team {parentTeamId.Value} not found");
 
             if (parent.IsSystemTeam)
-                throw new InvalidOperationException("System teams cannot be parents");
+                return new(ErrorMessage: "System teams cannot be parents");
 
             if (parent.ParentTeamId.HasValue)
-                throw new InvalidOperationException("Cannot nest more than one level — the parent team already has a parent");
+                return new(ErrorMessage: "Cannot nest more than one level — the parent team already has a parent");
         }
 
         if (!string.IsNullOrWhiteSpace(customSlug))
         {
             var normalized = SlugHelper.GenerateSlug(customSlug);
             if (string.IsNullOrEmpty(normalized))
-                throw new InvalidOperationException("Custom slug is not valid. Use lowercase letters, numbers, and hyphens.");
+                return new(ErrorMessage: "Custom slug is not valid. Use lowercase letters, numbers, and hyphens.");
             if (ReservedTeamSlugs.Contains(normalized))
-                throw new InvalidOperationException($"The slug '{normalized}' conflicts with a reserved route.");
+                return new(ErrorMessage: $"The slug '{normalized}' conflicts with a reserved route.");
 
             var customSlugTaken = await repo.SlugExistsAsync(normalized, excludingTeamId: teamId, cancellationToken);
             if (customSlugTaken)
-                throw new InvalidOperationException($"The slug '{normalized}' is already in use by another team.");
+                return new(ErrorMessage: $"The slug '{normalized}' is already in use by another team.");
 
             customSlug = normalized;
         }
@@ -457,6 +457,7 @@ internal sealed class TeamService(
         team.Name = name;
         team.Description = description;
         team.RequiresApproval = requiresApproval;
+        var activeChanged = team.IsActive != isActive;
         team.IsActive = isActive;
         team.ParentTeamId = parentTeamId;
         team.GoogleGroupPrefix = googleGroupPrefix;
@@ -476,7 +477,7 @@ internal sealed class TeamService(
         }
         if (isPromotedToDirectory.HasValue)
             team.IsPromotedToDirectory = isPromotedToDirectory.Value;
-        var earlyEntryChanged = false;
+        var earlyEntryChanged = activeChanged;
         if (earlyEntryEnabled is { } eeFlag && eeFlag != team.EarlyEntryEnabled)
         {
             team.EarlyEntryEnabled = eeFlag;
@@ -491,7 +492,8 @@ internal sealed class TeamService(
 
         try
         {
-            await repo.UpdateTeamAsync(team, cancellationToken);
+            var conflict = await repo.UpdateTeamAsync(team, cancellationToken);
+            if (conflict != TeamUpdateConflict.None) return new(Conflict: conflict);
         }
         finally
         {
@@ -510,7 +512,7 @@ internal sealed class TeamService(
 
         logger.LogInformation("Updated team {TeamId} ({TeamName})", teamId, name);
 
-        return team;
+        return new(Team: team);
     }
 
     public async Task<TeamPageUpdateResult> UpdateTeamPageContentAsync(
@@ -552,7 +554,12 @@ internal sealed class TeamService(
             team.PageContentUpdatedByUserId = updatedByUserId;
             team.UpdatedAt = now;
 
-            await repo.UpdateTeamAsync(team, cancellationToken);
+            var conflict = await repo.UpdateTeamAsync(team, cancellationToken);
+            if (conflict != TeamUpdateConflict.None)
+            {
+                logger.LogWarning("Team page update rejected for team {TeamId}: {Conflict}", teamId, conflict);
+                return new TeamPageUpdateResult(false, null);
+            }
 
             await auditLogService.LogAsync(
                 AuditAction.TeamPageContentUpdated, nameof(Team), teamId,
@@ -604,9 +611,10 @@ internal sealed class TeamService(
                 // Compensation: clear the prefix so the team never points at a
                 // group that does not exist; the admin can retry from team edit.
                 logger.LogError(ex, "Failed to create Google Group for new team {TeamId}, clearing prefix", team.Id);
-                await UpdateTeamAsync(
+                var compensation = await UpdateTeamAsync(
                     team.Id, team.Name, team.Description, team.RequiresApproval, team.IsActive,
                     team.ParentTeamId, googleGroupPrefix: null, cancellationToken: cancellationToken);
+                compensation.RequireSuccess();
                 groupWarning = $"Team created but Google Group setup failed: {ex.Message}. The group prefix has been cleared.";
             }
         }
@@ -614,7 +622,7 @@ internal sealed class TeamService(
         return new TeamWithGroupResult(team, groupWarning);
     }
 
-    public async Task<TeamWithGroupResult> UpdateTeamWithGoogleGroupAsync(
+    public async Task<TeamUpdateResult> UpdateTeamWithGoogleGroupAsync(
         Guid teamId,
         string name,
         string? description,
@@ -630,10 +638,12 @@ internal sealed class TeamService(
         bool? earlyEntryEnabled = null,
         CancellationToken cancellationToken = default)
     {
-        var team = await UpdateTeamAsync(
+        var result = await UpdateTeamAsync(
             teamId, name, description, requiresApproval, isActive, parentTeamId,
             googleGroupPrefix, customSlug, hasBudget, isHidden, isSensitive,
             isPromotedToDirectory, earlyEntryEnabled, cancellationToken);
+
+        if (!result.Succeeded) return result;
 
         string? groupWarning;
         try
@@ -651,10 +661,10 @@ internal sealed class TeamService(
             groupWarning = $"Team updated but Google Group setup failed: {ex.Message}";
         }
 
-        return new TeamWithGroupResult(team, groupWarning);
+        return result with { GroupWarning = groupWarning };
     }
 
-    public async Task DeleteTeamAsync(Guid teamId, CancellationToken cancellationToken = default)
+    public async Task DeleteTeamAsync(Guid teamId, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var team = await repo.GetByIdAsync(teamId, cancellationToken)
             ?? throw new InvalidOperationException($"Team {teamId} not found");
@@ -668,65 +678,87 @@ internal sealed class TeamService(
 
         var now = clock.GetCurrentInstant();
 
-        var closedCount = await repo.DeactivateTeamAsync(teamId, now, cancellationToken);
+        IReadOnlyList<Guid> closedUsers;
+        try
+        {
+            closedUsers = await repo.DeactivateTeamAsync(teamId, now, cancellationToken);
+        }
+        finally
+        {
+            // Inactive teams grant no Early Entry; evict even on uncertain completion.
+            earlyEntryInvalidator.InvalidateAll();
+        }
+        foreach (var userId in closedUsers)
+        {
+            await auditLogService.LogAsync(
+                AuditAction.TeamMemberRemoved, nameof(Team), teamId,
+                $"Membership ended when {team.Name} was deactivated",
+                actorUserId, relatedEntityId: userId, relatedEntityType: nameof(User));
+        }
 
         // GoogleResource.IsActive flipped later by Google reconciliation tick (deferred).
 
         logger.LogInformation(
             "Deactivated team {TeamId} ({TeamName}); closed {MemberCount} memberships",
-            teamId, team.Name, closedCount);
+            teamId, team.Name, closedUsers.Count);
     }
 
-    public async Task<TeamJoinOutcome> JoinTeamAsync(
+    public async Task<TeamJoinResult> JoinTeamAsync(
         Guid teamId,
         Guid userId,
         string? message,
         CancellationToken cancellationToken = default)
     {
-        var team = await repo.GetByIdWithRelationsAsync(teamId, cancellationToken)
-            ?? throw new InvalidOperationException("Teams_NotFound");
+        var team = await repo.GetByIdWithRelationsAsync(teamId, cancellationToken);
+        if (team is null)
+            return new TeamJoinResult(ErrorKey: "Teams_NotFound");
 
         // The join policy is the team's decision, not the caller's: approval-required
         // teams queue a request, open teams join immediately.
         if (team.RequiresApproval)
         {
-            await RequestToJoinTeamAsync(teamId, userId, message, cancellationToken);
-            return TeamJoinOutcome.RequestSubmitted;
+            var result = await RequestToJoinTeamAsync(teamId, userId, message, cancellationToken);
+            return result.ErrorKey is null
+                ? new TeamJoinResult(TeamJoinOutcome.RequestSubmitted)
+                : new TeamJoinResult(ErrorKey: result.ErrorKey);
         }
 
-        await JoinTeamDirectlyAsync(teamId, userId, cancellationToken);
-        return TeamJoinOutcome.Joined;
+        var directResult = await JoinTeamDirectlyAsync(teamId, userId, cancellationToken);
+        return directResult.ErrorKey is null
+            ? new TeamJoinResult(TeamJoinOutcome.Joined)
+            : new TeamJoinResult(ErrorKey: directResult.ErrorKey);
     }
 
-    public async Task<TeamJoinRequest> RequestToJoinTeamAsync(
+    public async Task<TeamJoinRequestResult> RequestToJoinTeamAsync(
         Guid teamId,
         Guid userId,
         string? message,
         CancellationToken cancellationToken = default)
     {
-        var team = await repo.GetByIdWithRelationsAsync(teamId, cancellationToken)
-            ?? throw new InvalidOperationException("Teams_NotFound");
+        var team = await repo.GetByIdWithRelationsAsync(teamId, cancellationToken);
+        if (team is null)
+            return new TeamJoinRequestResult(ErrorKey: "Teams_NotFound");
 
         if (!team.IsActive)
-            throw new InvalidOperationException("Teams_NotFound");
+            return new TeamJoinRequestResult(ErrorKey: "Teams_NotFound");
 
         if (team.IsSystemTeam)
-            throw new InvalidOperationException("Team_CannotJoinSystem");
+            return new TeamJoinRequestResult(ErrorKey: "Teams_Team_CannotJoinSystem");
 
         if (team.IsHidden)
-            throw new InvalidOperationException("Teams_CannotJoinHidden");
+            return new TeamJoinRequestResult(ErrorKey: "Teams_CannotJoinHidden");
 
         if (!team.RequiresApproval)
-            throw new InvalidOperationException("Teams_JoinPolicyChanged");
+            return new TeamJoinRequestResult(ErrorKey: "Teams_JoinPolicyChanged");
 
         var existingRequest = await repo.FindUserPendingRequestAsync(teamId, userId, cancellationToken);
         if (existingRequest is not null)
-            throw new InvalidOperationException("Team_AlreadyPendingRequest");
+            return new TeamJoinRequestResult(ErrorKey: "Teams_Team_AlreadyPendingRequest");
 
         var teamInfo = await GetTeamAsync(teamId, cancellationToken);
         var isMember = teamInfo is { IsActive: true } && teamInfo.Members.Any(m => m.UserId == userId);
         if (isMember)
-            throw new InvalidOperationException("Team_AlreadyMember");
+            return new TeamJoinRequestResult(ErrorKey: "Teams_Team_AlreadyMember");
 
         var request = new TeamJoinRequest
         {
@@ -742,32 +774,33 @@ internal sealed class TeamService(
         logger.LogInformation("User {UserId} requested to join team {TeamId}", userId, teamId);
         await SendTeamJoinRequestSubmittedNotificationAsync(team, userId, cancellationToken);
 
-        return request;
+        return new TeamJoinRequestResult(request);
     }
 
-    public async Task<TeamMember> JoinTeamDirectlyAsync(
+    public async Task<TeamDirectJoinResult> JoinTeamDirectlyAsync(
         Guid teamId,
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        var team = await repo.GetByIdWithRelationsAsync(teamId, cancellationToken)
-            ?? throw new InvalidOperationException("Teams_NotFound");
+        var team = await repo.GetByIdWithRelationsAsync(teamId, cancellationToken);
+        if (team is null)
+            return new TeamDirectJoinResult(ErrorKey: "Teams_NotFound");
 
         if (!team.IsActive)
-            throw new InvalidOperationException("Teams_NotFound");
+            return new TeamDirectJoinResult(ErrorKey: "Teams_NotFound");
 
         if (team.IsSystemTeam)
-            throw new InvalidOperationException("Team_CannotJoinSystem");
+            return new TeamDirectJoinResult(ErrorKey: "Teams_Team_CannotJoinSystem");
 
         if (team.IsHidden)
-            throw new InvalidOperationException("Teams_CannotJoinHidden");
+            return new TeamDirectJoinResult(ErrorKey: "Teams_CannotJoinHidden");
 
         if (team.RequiresApproval)
-            throw new InvalidOperationException("Teams_JoinPolicyChanged");
+            return new TeamDirectJoinResult(ErrorKey: "Teams_JoinPolicyChanged");
 
         var existingMember = await repo.IsActiveMemberAsync(teamId, userId, cancellationToken);
         if (existingMember)
-            throw new InvalidOperationException("Team_AlreadyMember");
+            return new TeamDirectJoinResult(ErrorKey: "Teams_Team_AlreadyMember");
 
         var member = new TeamMember
         {
@@ -793,7 +826,7 @@ internal sealed class TeamService(
         }
 
         if (!success)
-            throw new InvalidOperationException("Team_AlreadyMember");
+            return new TeamDirectJoinResult(ErrorKey: "Teams_Team_AlreadyMember");
 
         await auditLogService.LogAsync(
             AuditAction.TeamJoinedDirectly, nameof(Team), teamId,
@@ -804,7 +837,7 @@ internal sealed class TeamService(
         await SendAddedToTeamEmailAsync(userId, team, cancellationToken);
         await SendTeamMemberAddedNotificationAsync(team, userId, cancellationToken);
 
-        return member;
+        return new TeamDirectJoinResult(member);
     }
 
     private async Task SendTeamJoinRequestSubmittedNotificationAsync(
@@ -1010,20 +1043,21 @@ internal sealed class TeamService(
             new TransactionOptions { IsolationLevel = IsolationLevel.ReadCommitted },
             TransactionScopeAsyncFlowOption.Enabled);
 
-    public async Task<bool> LeaveTeamAsync(
+    public async Task<TeamMembershipMutationResult> LeaveTeamAsync(
         Guid teamId,
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        var team = await repo.GetByIdAsync(teamId, cancellationToken)
-            ?? throw new InvalidOperationException("Teams_NotFound");
+        var team = await repo.GetByIdAsync(teamId, cancellationToken);
+        if (team is null)
+            return new TeamMembershipMutationResult(false, "Teams_NotFound");
 
         if (team.IsSystemTeam)
-            throw new InvalidOperationException("Teams_CannotLeaveSystem");
+            return new TeamMembershipMutationResult(false, "Teams_CannotLeaveSystem");
 
         var member = await repo.FindActiveMemberForMutationAsync(teamId, userId, cancellationToken);
         if (member is null)
-            throw new InvalidOperationException("Teams_NotMember");
+            return new TeamMembershipMutationResult(false, "Teams_NotMember");
 
         var wasCoordinator = member.Role == TeamMemberRole.Coordinator;
 
@@ -1048,10 +1082,10 @@ internal sealed class TeamService(
                 userId, SystemTeamType.Coordinators, cancellationToken);
         }
 
-        return wasCoordinator;
+        return new TeamMembershipMutationResult(true, WasCoordinator: wasCoordinator);
     }
 
-    public async Task WithdrawJoinRequestAsync(
+    public async Task<TeamMembershipMutationResult> WithdrawJoinRequestAsync(
         Guid requestId,
         Guid userId,
         CancellationToken cancellationToken = default)
@@ -1059,11 +1093,12 @@ internal sealed class TeamService(
         var now = clock.GetCurrentInstant();
         var withdrew = await repo.WithdrawRequestAsync(requestId, userId, now, cancellationToken);
         if (!withdrew)
-            throw new InvalidOperationException("Teams_RequestUnavailable");
+            return new TeamMembershipMutationResult(false, "Teams_RequestUnavailable");
 
         notificationMeterInvalidator.Invalidate();
 
         logger.LogInformation("User {UserId} withdrew join request {RequestId}", userId, requestId);
+        return new TeamMembershipMutationResult(true);
     }
 
     public async Task<TeamMember> ApproveJoinRequestAsync(
@@ -1201,7 +1236,7 @@ internal sealed class TeamService(
                 [requesterUserId],
                 body: noticeCopy.Body,
                 actionUrl: "/Teams",
-                actionLabel: NoticeResources.GetString("MyTeams_BrowseTeams", culture),
+                actionLabel: NoticeResources.GetString("Teams_MyTeams_BrowseTeams", culture),
                 cancellationToken: cancellationToken);
         }
         catch (Exception ex)
@@ -1225,6 +1260,14 @@ internal sealed class TeamService(
         return requests
             .Select(request => ToJoinRequestSnapshot(request, usersById))
             .ToList();
+    }
+
+    public async Task<IReadOnlyList<TeamJoinRequestSnapshot>> GetPendingRequestsForUserAsync(
+        Guid userId, CancellationToken cancellationToken = default)
+    {
+        var requests = await repo.GetAllJoinRequestsForUserAsync(userId, cancellationToken);
+        return requests.Where(request => request.Status == TeamJoinRequestStatus.Pending)
+            .Select(ToJoinRequestSnapshot).ToList();
     }
 
     public async Task<TeamJoinRequestSnapshot?> GetUserPendingRequestAsync(
@@ -1262,24 +1305,26 @@ internal sealed class TeamService(
         return TeamCoordinatorAccess.IsCoordinatorOfActiveTeam(teamsById, teamId, userId);
     }
 
-    public async Task RemoveMemberAsync(
+    public async Task<TeamMemberRemovalResult> RemoveMemberAsync(
         Guid teamId,
         Guid userId,
         Guid actorUserId,
         CancellationToken cancellationToken = default)
     {
-        var team = await repo.GetByIdAsync(teamId, cancellationToken)
-            ?? throw new InvalidOperationException($"Team {teamId} not found");
+        var team = await repo.GetByIdAsync(teamId, cancellationToken);
+        if (team is null)
+            return RefuseMemberRemoval(teamId, userId, actorUserId, "Teams_RemoveMember_TeamMissing", $"Team {teamId} not found");
 
         if (team.IsSystemTeam)
-            throw new InvalidOperationException("Cannot remove members from system team manually");
+            return RefuseMemberRemoval(teamId, userId, actorUserId, "Teams_RemoveMember_SystemTeam", "Cannot remove members from system team manually");
 
         var canApprove = await CanUserApproveRequestsForTeamAsync(teamId, actorUserId, cancellationToken);
         if (!canApprove)
-            throw new InvalidOperationException("User does not have permission to remove members from this team");
+            return RefuseMemberRemoval(teamId, userId, actorUserId, "Teams_RemoveMember_Permission", "User does not have permission to remove members from this team");
 
-        var member = await repo.FindActiveMemberForMutationAsync(teamId, userId, cancellationToken)
-            ?? throw new InvalidOperationException("User is not a member of this team");
+        var member = await repo.FindActiveMemberForMutationAsync(teamId, userId, cancellationToken);
+        if (member is null)
+            return RefuseMemberRemoval(teamId, userId, actorUserId, "Teams_RemoveMember_NotMember", "User is not a member of this team");
 
         var wasCoordinator = member.Role == TeamMemberRole.Coordinator;
 
@@ -1321,6 +1366,13 @@ internal sealed class TeamService(
         // reconcile as part of the mutation, not as a caller-remembered follow-up.
         if (wasCoordinator)
             await SystemTeamSync.SyncMembershipForUserAsync(userId, SystemTeamType.Coordinators, cancellationToken);
+        return new TeamMemberRemovalResult();
+    }
+
+    private TeamMemberRemovalResult RefuseMemberRemoval(Guid teamId, Guid userId, Guid actorId, string key, string message)
+    {
+        logger.LogWarning("Member removal refused for {UserId} from team {TeamId} by {ActorId}: {ErrorKey}", userId, teamId, actorId, key);
+        return new TeamMemberRemovalResult(key, message);
     }
 
     public async Task<TeamMember> AddMemberToTeamAsync(
@@ -1358,21 +1410,16 @@ internal sealed class TeamService(
         {
             if (pendingRequest is not null)
             {
-                // pendingRequest is AsNoTracking — re-fetch tracked + approve via full request-path.
-                if (pendingRequest.Status == TeamJoinRequestStatus.Pending)
-                {
-                    pendingRequest.Status = TeamJoinRequestStatus.Approved;
-                    pendingRequest.ReviewedByUserId = actorUserId;
-                    pendingRequest.ReviewNotes = "Added directly by team manager";
-                    pendingRequest.ResolvedAt = clock.GetCurrentInstant();
-                }
                 var tracked = await repo.FindRequestForMutationAsync(pendingRequest.Id, cancellationToken);
                 if (tracked is not null)
                 {
-                    tracked.Status = pendingRequest.Status;
-                    tracked.ReviewedByUserId = pendingRequest.ReviewedByUserId;
-                    tracked.ReviewNotes = pendingRequest.ReviewNotes;
-                    tracked.ResolvedAt = pendingRequest.ResolvedAt;
+                    if (tracked.Status == TeamJoinRequestStatus.Pending)
+                    {
+                        tracked.Status = TeamJoinRequestStatus.Approved;
+                        tracked.ReviewedByUserId = actorUserId;
+                        tracked.ReviewNotes = "Added directly by team manager";
+                        tracked.ResolvedAt = clock.GetCurrentInstant();
+                    }
                     success = await ApproveRequestWithMemberAndOutboxAsync(
                         tracked, member, outboxEvent, cancellationToken);
                 }
@@ -1734,18 +1781,7 @@ internal sealed class TeamService(
         if (!string.IsNullOrEmpty(period))
             filtered = filtered.Where(s => string.Equals(s.Period, period, StringComparison.OrdinalIgnoreCase));
 
-        return filtered
-            .OrderBy(slot => slot.Priority switch
-            {
-                nameof(SlotPriority.Critical) => 0,
-                nameof(SlotPriority.Important) => 1,
-                nameof(SlotPriority.NiceToHave) => 2,
-                _ => 3
-            })
-            .ThenBy(slot => slot.TeamName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(slot => slot.RoleName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(slot => slot.SlotNumber)
-            .ToList();
+        return filtered.ToList();
     }
 
     public async Task<TeamRoleAssignment> AssignToRoleAsync(
@@ -1900,7 +1936,7 @@ internal sealed class TeamService(
             ?? throw new InvalidOperationException($"Team {team.Id} missing from the read model after creation");
     }
 
-    Task ITeamSeeding.UpdateTeamAsync(
+    async Task ITeamSeeding.UpdateTeamAsync(
         Guid teamId,
         string name,
         string? description,
@@ -1914,11 +1950,14 @@ internal sealed class TeamService(
         bool? isSensitive,
         bool? isPromotedToDirectory,
         bool? earlyEntryEnabled,
-        CancellationToken cancellationToken) =>
-        UpdateTeamAsync(
+        CancellationToken cancellationToken)
+    {
+        var result = await UpdateTeamAsync(
             teamId, name, description, requiresApproval, isActive, parentTeamId, googleGroupPrefix,
             customSlug, hasBudget, isHidden, isSensitive, isPromotedToDirectory, earlyEntryEnabled,
             cancellationToken);
+        result.RequireSuccess();
+    }
 
     Task ITeamSeeding.AddSeededMemberAsync(
         Guid teamId,
@@ -2003,7 +2042,14 @@ internal sealed class TeamService(
         if (resources.Count > 0)
             throw new InvalidOperationException("Cannot permanently delete a team that has Google resources linked. Unlink resources first.");
 
-        return await repo.PermanentlyDeleteTeamAsync(teamId, cancellationToken);
+        try
+        {
+            return await repo.PermanentlyDeleteTeamAsync(teamId, cancellationToken);
+        }
+        finally
+        {
+            earlyEntryInvalidator.InvalidateAll();
+        }
     }
 
     public Task<IReadOnlyDictionary<Guid, string>> GetManagementRoleNamesByTeamIdsAsync(
@@ -2068,7 +2114,9 @@ internal sealed class TeamService(
                 await AddMemberToTeamAsync(membership.TeamId, targetUserId, actorUserId, cancellationToken);
             }
 
-            await RemoveMemberAsync(membership.TeamId, sourceUserId, actorUserId, cancellationToken);
+            var removal = await RemoveMemberAsync(membership.TeamId, sourceUserId, actorUserId, cancellationToken);
+            if (removal.ErrorKey is not null)
+                throw new InvalidOperationException(removal.ErrorMessage);
         }
 
         // TeamJoinRequest fold.
@@ -2537,7 +2585,8 @@ internal sealed class TeamService(
         request.Message,
         request.RequestedAt,
         request.ResolvedAt,
-        request.ReviewNotes);
+        request.ReviewNotes,
+        request.Team?.Slug);
 
     private static TeamJoinRequestSnapshot ToJoinRequestSnapshot(
         TeamJoinRequest request,

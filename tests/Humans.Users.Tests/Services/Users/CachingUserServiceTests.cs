@@ -68,6 +68,24 @@ public class CachingUserServiceTests
     };
 
     [HumansFact]
+    public async Task AdminStubProfileCreation_ForwardsAuditActor_AndRefreshesProfile()
+    {
+        var userId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+        var ct = Xunit.TestContext.Current.CancellationToken;
+        var sut = CreateSut();
+        await PrimeAsync(sut, SampleUserInfo(userId) with { Profile = null });
+        _inner.EnsureStubProfileAsync(userId, null, null, null, ct, actorId).Returns(true);
+        _inner.GetUserInfoAsync(userId, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<UserInfo?>(SampleUserInfo(userId)));
+
+        (await sut.EnsureStubProfileAsync(userId, ct: ct, actorUserId: actorId)).Should().BeTrue();
+
+        await _inner.Received(1).EnsureStubProfileAsync(userId, null, null, null, ct, actorId);
+        (await sut.GetUserInfoAsync(userId, ct))!.Profile.Should().NotBeNull();
+    }
+
+    [HumansFact]
     public async Task CommittedPreferenceChange_FinishesCacheRefreshAndAuditDespiteRequestCancellation()
     {
         var testCt = Xunit.TestContext.Current.CancellationToken;
@@ -1037,7 +1055,7 @@ public class CachingUserServiceTests
                 Arg.Any<UserProfileSaveCommand>(),
                 Arg.Any<byte[]?>(),
                 Arg.Any<CancellationToken>())
-            .Returns(new UserProfileSaveResult(profileId, null, "image/png"));
+            .Returns(new UserProfileSaveResult(profileId, null, "uploads/profile-pictures/new.png"));
 
         StubRefreshEntry(userId, new Profile
         {
@@ -1096,7 +1114,7 @@ public class CachingUserServiceTests
         await PrimeAsync(sut, SampleUserInfo(userId));
 
         _inner.AnonymizeProfileForDeletionAsync(userId, Arg.Any<CancellationToken>())
-            .Returns(new UserProfileAnonymizeResult(true, profileId, "image/png"));
+            .Returns(new UserProfileAnonymizeResult(true, profileId, "uploads/profile-pictures/old.png"));
 
         StubRefreshEntry(userId, new Profile
         {
@@ -1113,7 +1131,7 @@ public class CachingUserServiceTests
         var result = await sut.AnonymizeProfileForDeletionAsync(userId, Xunit.TestContext.Current.CancellationToken);
 
         result.Anonymized.Should().BeTrue();
-        result.PreviousProfilePictureContentType.Should().Be("image/png");
+        result.PreviousProfilePictureKey.Should().Be("uploads/profile-pictures/old.png");
         var refreshed = await sut.GetUserInfoAsync(userId, Xunit.TestContext.Current.CancellationToken);
         refreshed!.Profile.Should().NotBeNull();
         refreshed.Profile!.FirstName.Should().Be("Deleted");

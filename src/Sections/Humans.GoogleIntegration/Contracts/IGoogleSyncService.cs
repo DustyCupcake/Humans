@@ -39,14 +39,15 @@ public interface IGoogleSyncService : IGoogleSyncServiceRead, IApplicationServic
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Adds a user to all Google resources associated with a team.
+    /// Adds a user to all Google resources associated with a team. Only an accepted
+    /// Drive grant validates the address; queued group work and disabled sync are deferred.
     /// </summary>
     /// <param name="teamId">The team ID.</param>
     /// <param name="userId">The user ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="syncSource">The trigger recorded on any Drive sync-log rows.</param>
     [ExternalWrite]
-    Task AddUserToTeamResourcesAsync(
+    Task<GoogleResourceGrantResult> AddUserToTeamResourcesAsync(
         Guid teamId,
         Guid userId,
         CancellationToken cancellationToken = default,
@@ -143,8 +144,7 @@ public interface IGoogleSyncService : IGoogleSyncServiceRead, IApplicationServic
     /// <summary>
     /// Requests an on-demand Drive access reconcile for one folder claimed
     /// through the <see cref="IGoogleDriveAccessSource"/> fan-out (e.g.
-    /// Workgroups, after a membership or status change) — not the
-    /// Teams-keyed <c>google_resources</c> Drive path. Deferred: returns
+    /// Teams or Workgroups, after a membership or status change). Deferred: returns
     /// once the reconcile is scheduled, not once it has run.
     /// </summary>
     Task RequestSyncAsync(string folderId, CancellationToken cancellationToken = default);
@@ -164,3 +164,27 @@ public sealed record GroupSettingsRemediationResult(bool Succeeded, string? Erro
 
     public static GroupSettingsRemediationResult Failure(string message) => new(false, message);
 }
+
+/// <summary>Whether team provisioning actually established acceptance of the Google address.</summary>
+public enum GoogleResourceGrantOutcome
+{
+    /// <summary>No immediate vendor acceptance: no resources, disabled Drive sync or queued group work.</summary>
+    Deferred,
+    /// <summary>Google accepted at least one Drive grant and none failed.</summary>
+    Accepted,
+    /// <summary>A grant failed or the user has no eligible address.</summary>
+    Failed
+}
+
+/// <summary>Vendor acceptance and the exact email row attempted by team provisioning.</summary>
+/// <param name="Outcome">Accepted only when at least one Drive grant succeeds and none fail.</param>
+/// <param name="UserId">Resolved owner of the attempted address.</param>
+/// <param name="GoogleEmailId">Attempted verified email row; required for Accepted.</param>
+/// <param name="Retryable">Whether any failed grant can be retried; local refusals are permanent.</param>
+/// <param name="ErrorMessage">Failure details for the outbox and operator diagnostics.</param>
+public sealed record GoogleResourceGrantResult(
+    GoogleResourceGrantOutcome Outcome,
+    Guid UserId,
+    Guid? GoogleEmailId = null,
+    bool Retryable = false,
+    string? ErrorMessage = null);

@@ -81,8 +81,8 @@ public sealed class EventTests
     [HumansFact]
     public void Withdraw_CampEventInDraft_Throws()
     {
-        // Camp (barrio) events have no Draft stage — the asymmetry the
-        // controllers used to encode is now owned by the entity (E2-E4).
+        // Camp (barrio) events have no Draft stage — the entity owns
+        // that asymmetry.
         var guideEvent = CreateEvent(EventStatus.Draft);
         guideEvent.CampId = Guid.NewGuid();
 
@@ -215,6 +215,24 @@ public sealed class EventTests
             occurrences.Should().Equal(july8);
         else
             occurrences.Should().Equal(july7, july8);
+    }
+
+    [HumansTheory]
+    [Xunit.InlineData(false, true)]
+    [Xunit.InlineData(true, false)]
+    [Xunit.InlineData(false, false)]
+    public void GetOccurrenceInstants_MissingContext_ReturnsStartAtDespiteDayFilter(bool hasGateDate, bool hasZone)
+    {
+        var guideEvent = CreateEvent(EventStatus.Approved);
+        guideEvent.IsRecurring = true;
+        guideEvent.RecurrenceDays = "2,3";
+
+        var occurrences = guideEvent.GetOccurrenceInstants(
+            hasGateDate ? new LocalDate(2026, 7, 5) : null,
+            hasZone ? DateTimeZone.Utc : null,
+            dayOffset: 3);
+
+        occurrences.Should().Equal(guideEvent.StartAt);
     }
 
     [HumansFact]

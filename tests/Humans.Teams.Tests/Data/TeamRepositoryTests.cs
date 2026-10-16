@@ -76,6 +76,32 @@ public sealed class TeamRepositoryTests : IDisposable
             (await insert.Should().ThrowAsync<DbUpdateException>()).Which.Should().BeSameAs(failure);
     }
 
+    [HumansTheory]
+    [InlineData("23505", "IX_teams_Slug", (int)TeamUpdateConflict.SlugTaken)]
+    [InlineData("23505", "IX_teams_CustomSlug", (int)TeamUpdateConflict.CustomSlugTaken)]
+    [InlineData("23505", "IX_teams_GoogleGroupPrefix", (int)TeamUpdateConflict.GroupPrefixTaken)]
+    [InlineData("23505", "PK_teams", (int)TeamUpdateConflict.None)]
+    [InlineData("23503", "IX_teams_CustomSlug", (int)TeamUpdateConflict.None)]
+    [InlineData("08006", "IX_teams_GoogleGroupPrefix", (int)TeamUpdateConflict.None)]
+    public async Task UpdateTeam_OnlyTranslatesKnownUniqueConstraints(
+        string sqlState, string constraint, int expectedValue)
+    {
+        var expected = (TeamUpdateConflict)expectedValue;
+        var failure = new DbUpdateException("Save failed", new Npgsql.PostgresException(
+            "Constraint violation", "ERROR", "ERROR", sqlState, constraintName: constraint));
+        var options = new DbContextOptionsBuilder<TeamsDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .AddInterceptors(new FailedInsert(failure)).Options;
+        var repo = new TeamRepository(new TestDbContextFactory<TeamsDbContext>(options));
+        var team = new Team { Id = Guid.NewGuid(), Name = "Design", Slug = "design" };
+        Func<Task<TeamUpdateConflict>> update = () => repo.UpdateTeamAsync(team, Xunit.TestContext.Current.CancellationToken);
+
+        if (expected != TeamUpdateConflict.None)
+            (await update()).Should().Be(expected);
+        else
+            (await update.Should().ThrowAsync<DbUpdateException>()).Which.Should().BeSameAs(failure);
+    }
+
     private sealed class FailedInsert(DbUpdateException failure) : SaveChangesInterceptor
     {
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
@@ -420,14 +446,36 @@ public sealed class TeamRepositoryTests : IDisposable
         var member = await SeedActiveMemberAsync(team, user);
 
         var now = _clock.GetCurrentInstant();
-        var count = await _repo.DeactivateTeamAsync(team.Id, now, Xunit.TestContext.Current.CancellationToken);
+        var closedUsers = await _repo.DeactivateTeamAsync(team.Id, now, Xunit.TestContext.Current.CancellationToken);
 
-        count.Should().Be(1);
+        closedUsers.Should().BeEquivalentTo([user.Id]);
         _dbContext.ChangeTracker.Clear();
         var t = await _dbContext.Teams.AsNoTracking().FirstAsync(x => x.Id == team.Id, Xunit.TestContext.Current.CancellationToken);
         t.IsActive.Should().BeFalse();
         var m = await _dbContext.TeamMembers.AsNoTracking().FirstAsync(x => x.Id == member.Id, Xunit.TestContext.Current.CancellationToken);
         m.LeftAt.Should().Be(now);
+    }
+
+    [HumansFact]
+    public async Task GetEarlyEntryGrantsForEnabledTeamsAsync_ExcludesInactiveTeams()
+    {
+        var active = await SeedTeamAsync("Active");
+        var inactive = await SeedTeamAsync("Inactive");
+        active.EarlyEntryEnabled = true;
+        inactive.EarlyEntryEnabled = true;
+        inactive.IsActive = false;
+        foreach (var team in new[] { active, inactive })
+            _dbContext.TeamEarlyEntryGrants.Add(new TeamEarlyEntryGrant
+            {
+                TeamId = team.Id,
+                UserId = Guid.NewGuid(),
+                ProjectName = "P",
+            });
+        await _dbContext.SaveChangesAsync(Xunit.TestContext.Current.CancellationToken);
+
+        var grants = await _repo.GetEarlyEntryGrantsForEnabledTeamsAsync(Xunit.TestContext.Current.CancellationToken);
+
+        grants.Should().ContainSingle().Which.TeamId.Should().Be(active.Id);
     }
 
     [HumansFact]

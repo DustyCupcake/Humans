@@ -83,6 +83,7 @@ public sealed class ExpensesControllerTests
         {
             Id = reportId,
             SubmitterUserId = Guid.NewGuid(),
+            HoldedAccountNumber = 0,
             BudgetCategoryId = Guid.NewGuid(),
             BudgetYearId = Guid.NewGuid(),
             Status = ExpenseReportStatus.Draft,
@@ -125,6 +126,7 @@ public sealed class ExpensesControllerTests
         {
             Id = reportId,
             SubmitterUserId = isSubmitter ? actorId : Guid.NewGuid(),
+            HoldedAccountNumber = 0,
             BudgetCategoryId = Guid.NewGuid(),
             BudgetYearId = Guid.NewGuid(),
             Status = status,
@@ -196,6 +198,7 @@ public sealed class ExpensesControllerTests
         {
             Id = reportId,
             SubmitterUserId = actorId,
+            HoldedAccountNumber = 0,
             BudgetCategoryId = Guid.NewGuid(),
             BudgetYearId = Guid.NewGuid(),
             Status = ExpenseReportStatus.Draft,
@@ -239,6 +242,53 @@ public sealed class ExpensesControllerTests
             else
                 controller.TempData[TempDataKeys.ErrorMessage].Should().Be(translated);
         }
+    }
+
+    [HumansFact]
+    public async Task Index_ShowsTheReviewLink_ToAnyoneWithAClaimToSignOff()
+    {
+        // A child-team coordinator holds no department, yet can endorse; the link must follow.
+        var actorId = Guid.NewGuid();
+        var users = Substitute.For<IUserServiceRead>();
+        users.GetUserInfoAsync(actorId, Arg.Any<CancellationToken>()).Returns(
+            UserInfo.Create(new User { Id = actorId }, [], [], [], null, []));
+        var reports = Substitute.For<IExpenseReportService>();
+        reports.GetForSubmitterAsync(actorId, Arg.Any<CancellationToken>()).Returns([]);
+        reports.GetCoordinatorQueueAsync(actorId, Arg.Any<CancellationToken>()).Returns([new ExpenseReportDto
+        {
+            Id = Guid.NewGuid(),
+            SubmitterUserId = Guid.NewGuid(),
+            BudgetCategoryId = Guid.NewGuid(),
+            BudgetYearId = Guid.NewGuid(),
+            HoldedAccountNumber = 0,
+            Status = ExpenseReportStatus.Submitted,
+            PayeeName = "Submitter",
+            PayeeIban = "",
+            Total = 0,
+            CreatedAt = default,
+            UpdatedAt = default,
+            Lines = []
+        }]);
+        var budget = Substitute.For<IBudgetServiceRead>();
+        budget.GetEffectiveCoordinatorTeamIdsAsync(actorId).Returns(new HashSet<Guid>());
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, actorId.ToString())], "test"))
+        };
+        var controller = new ExpensesController(users, reports, budget,
+            Substitute.For<IHoldedFinanceServiceRead>(), Substitute.For<IAuthorizationService>(),
+            NullLogger<ExpensesController>.Instance, Substitute.For<IStringLocalizer<ExpensesResource>>())
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+            TempData = new TempDataDictionary(context, Substitute.For<ITempDataProvider>())
+        };
+
+        var result = await controller.Index();
+
+        result.Should().BeOfType<ViewResult>()
+            .Which.Model.Should().BeOfType<ExpensesIndexViewModel>()
+            .Which.IsCoordinator.Should().BeTrue();
     }
 
     private static Task<IActionResult> InvokeAsync(ExpensesController controller, string action, Guid id) =>

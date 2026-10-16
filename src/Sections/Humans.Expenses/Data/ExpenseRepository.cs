@@ -39,7 +39,7 @@ internal sealed class ExpenseRepository(IDbContextFactory<ExpensesDbContext> fac
         await using var ctx = await factory.CreateDbContextAsync(ct);
         var entities = await ctx.ExpenseReports.AsNoTracking()
             .Include(r => r.Lines).ThenInclude(l => l.Attachment)
-            .Where(r => r.Status == status && categoryIds.Contains(r.BudgetCategoryId))
+            .Where(r => r.Status == status && r.BudgetCategoryId != null && categoryIds.Contains(r.BudgetCategoryId.Value))
             // arch:db-sort-ok coordinator queue FIFO — oldest pending submissions surface first
             .OrderBy(r => r.SubmittedAt ?? r.CreatedAt)
             .ToListAsync(ct);
@@ -94,9 +94,11 @@ internal sealed class ExpenseRepository(IDbContextFactory<ExpensesDbContext> fac
         var tracked = await ctx.ExpenseReports
             .FirstOrDefaultAsync(r => r.Id == report.Id, ct);
         // Which statuses a header may still be edited in is the service's call
-        // (RequireEditableReportAsync) and differs by actor — a finance admin correcting a report
+        // (GetEditableReportAsync) and differs by actor — a finance admin correcting a report
         // on a member's behalf reaches past Draft. Re-deciding it here would silently no-op that.
         if (tracked is null) return;
+        tracked.HoldedAccountNumber = report.HoldedAccountNumber;
+        tracked.HoldedAccountId = report.HoldedAccountId;
         tracked.BudgetCategoryId = report.BudgetCategoryId;
         tracked.BudgetYearId = report.BudgetYearId;
         tracked.Note = report.Note;
@@ -175,32 +177,46 @@ internal sealed class ExpenseRepository(IDbContextFactory<ExpensesDbContext> fac
         return attachments;
     }
 
-    public async Task<Guid> AddAttachmentAsync(
-        ExpenseAttachment attachment, CancellationToken ct = default)
+    public async Task<(bool Found, ExpenseAttachment? Replaced)> ReplaceLineAttachmentAsync(
+        Guid reportId, Guid lineId, ExpenseAttachment? attachment, CancellationToken ct = default)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);
-        ctx.ExpenseAttachments.Add(attachment);
+        var line = await ctx.ExpenseLines.Include(l => l.Attachment)
+            .SingleOrDefaultAsync(l => l.Id == lineId && l.ExpenseReportId == reportId, ct);
+        if (line is null) return (false, null);
+        if (line.AttachmentId == attachment?.Id) return (true, null);
+
+        var replaced = line.Attachment;
+        ExpenseAttachment? replacement = null;
+        if (attachment is not null)
+        {
+            replacement = await ctx.ExpenseAttachments.FindAsync([attachment.Id], ct);
+            if (replacement is null)
+            {
+                replacement = attachment;
+                ctx.ExpenseAttachments.Add(replacement);
+            }
+        }
+        line.Attachment = replacement;
+        line.AttachmentId = replacement?.Id;
+        if (replaced is not null)
+            ctx.ExpenseAttachments.Remove(replaced);
         await ctx.SaveChangesAsync(ct);
-        return attachment.Id;
+        return (true, replaced);
     }
 
-    public async Task RemoveAttachmentAsync(Guid id, CancellationToken ct = default)
+    public async Task<ExpenseAttachment?> RemoveLineAttachmentAsync(Guid reportId, Guid lineId, CancellationToken ct = default)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);
-        var att = await ctx.ExpenseAttachments.FirstOrDefaultAsync(a => a.Id == id, ct);
-        if (att is null) return;
-        ctx.ExpenseAttachments.Remove(att);
-        await ctx.SaveChangesAsync(ct);
-    }
+        var line = await ctx.ExpenseLines.Include(l => l.Attachment)
+            .SingleOrDefaultAsync(l => l.Id == lineId && l.ExpenseReportId == reportId, ct);
+        if (line?.Attachment is not { } attachment) return null;
 
-    public async Task SetLineAttachmentAsync(
-        Guid lineId, Guid? attachmentId, CancellationToken ct = default)
-    {
-        await using var ctx = await factory.CreateDbContextAsync(ct);
-        var line = await ctx.ExpenseLines.FirstOrDefaultAsync(l => l.Id == lineId, ct);
-        if (line is null) return;
-        line.AttachmentId = attachmentId;
+        line.AttachmentId = null;
+        line.Attachment = null;
+        ctx.ExpenseAttachments.Remove(attachment);
         await ctx.SaveChangesAsync(ct);
+        return attachment;
     }
 
     public async Task<bool> UpdatePayeeIbanAsync(
@@ -243,9 +259,8 @@ internal sealed class ExpenseRepository(IDbContextFactory<ExpensesDbContext> fac
         var r = await ctx.ExpenseReports
             .FirstOrDefaultAsync(x => x.Id == reportId, ct);
         if (r is null) return false;
-        // Withdraw is valid only from Submitted/CoordinatorEndorsed/Approved per section invariant.
-        // Draft has no UI Withdraw path (use Delete-while-Draft when that ships) and a direct
-        // POST should not silently succeed; Withdrawn is already terminal.
+        // Withdraw is valid only from Submitted/CoordinatorEndorsed/Approved. Draft has no
+        // Withdraw path, so a direct POST must not succeed; Withdrawn is terminal.
         if (r.Status is ExpenseReportStatus.Draft
                      or ExpenseReportStatus.Withdrawn) return false;
         r.Status = ExpenseReportStatus.Withdrawn;
@@ -290,7 +305,7 @@ internal sealed class ExpenseRepository(IDbContextFactory<ExpensesDbContext> fac
     }
 
     public async Task<bool> ApproveAsync(
-        Guid reportId, Guid actorUserId, Guid? overrideCategoryId, decimal? maxAmount,
+        Guid reportId, Guid actorUserId, ExpenseBooking? overrideBooking, decimal? maxAmount,
         Instant approvedAt, Guid outboxEventId, CancellationToken ct = default)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);
@@ -304,7 +319,13 @@ internal sealed class ExpenseRepository(IDbContextFactory<ExpensesDbContext> fac
         r.ApprovedByUserId = actorUserId;
         r.ApprovedAt = approvedAt;
         r.UpdatedAt = approvedAt;
-        if (overrideCategoryId is { } cat) r.BudgetCategoryId = cat;
+        if (overrideBooking is { } booking)
+        {
+            r.HoldedAccountNumber = booking.HoldedAccountNumber;
+            r.HoldedAccountId = booking.HoldedAccountId;
+            r.BudgetCategoryId = booking.BudgetCategoryId;
+            r.BudgetYearId = booking.BudgetYearId;
+        }
         // Blank form field = null = no cap; the input is prefilled with the current cap,
         // so blanking it must clear a coordinator-set cap, not silently keep it.
         r.MaxAmount = maxAmount;

@@ -87,16 +87,17 @@ internal sealed class CachingEventService(
     public Task<EventSettingsInfo?> GetEventSettingsByIdAsync(Guid id, CancellationToken ct = default) =>
         WithInner(inner => inner.GetEventSettingsByIdAsync(id, ct));
 
-    public Task SaveGuideSettingsAsync(
+    public Task<bool> SaveGuideSettingsAsync(
         Guid? existingId, Guid eventSettingsId,
         LocalDateTime submissionOpenAt, LocalDateTime submissionCloseAt, LocalDateTime guidePublishAt,
         int maxPrintSlots, CancellationToken ct = default) =>
         MutateAsync(async () =>
         {
-            await WithInner(inner => inner.SaveGuideSettingsAsync(
+            var saved = await WithInner(inner => inner.SaveGuideSettingsAsync(
                 existingId, eventSettingsId, submissionOpenAt, submissionCloseAt, guidePublishAt,
                 maxPrintSlots, ct));
-            await RefreshSettingsAsync(ct);
+            if (saved) await RefreshSettingsAsync(ct);
+            return saved;
         });
 
     // ── Categories — flat list projection ──
@@ -274,6 +275,13 @@ internal sealed class CachingEventService(
             _eventCache.Invalidate(guideEvent.Id);
         });
 
+    public Task ModeratorWithdrawAsync(Event guideEvent, Guid actorUserId, CancellationToken ct = default) =>
+        MutateAsync(async () =>
+        {
+            await WithInner(inner => inner.ModeratorWithdrawAsync(guideEvent, actorUserId, ct));
+            _eventCache.Invalidate(guideEvent.Id);
+        });
+
     public Task AdminUpdateAsync(Event guideEvent, Guid actorUserId, string? note, CancellationToken ct = default) =>
         MutateAsync(async () =>
         {
@@ -442,7 +450,7 @@ internal sealed class CachingEventService(
     public Task<ApprovedEventsExportInfo> GetApprovedEventsForExportAsync(CancellationToken ct = default) =>
         WithInner(inner => inner.GetApprovedEventsForExportAsync(ct));
 
-    // ── IEventViewInvalidator — external invalidation hooks (nobodies-collective/Humans#719) ──
+    // ── IEventViewInvalidator — in-section invalidation hook (no caller) ──
 
     public Task InvalidateGuideSettingsAsync(CancellationToken ct = default) =>
         MutateAsync(() => RefreshSettingsAsync(ct));

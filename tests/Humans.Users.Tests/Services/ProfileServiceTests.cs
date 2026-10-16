@@ -23,6 +23,7 @@ public sealed class ProfileServiceTests : ServiceTestHarness
     private readonly IUserRepository _userRepository;
     private readonly IUserServiceInternal _userService = Substitute.For<IUserServiceInternal>();
     private readonly ICommunicationPreferenceRepository _communicationPreferenceRepository = Substitute.For<ICommunicationPreferenceRepository>();
+    private readonly UserService _storageUserService;
     private readonly InMemoryFileStorage _fileStorage = new();
     private readonly IFileStorage _pictureStorage = Substitute.For<IFileStorage>();
 
@@ -43,21 +44,20 @@ public sealed class ProfileServiceTests : ServiceTestHarness
             .Returns(call => _fileStorage.TryReadAsync(call.ArgAt<string>(0), call.ArgAt<CancellationToken>(1)));
         // Real repositories backed by an IDbContextFactory wrapping the in-memory store.
         _userRepository = new UserRepository(DbFactory, Clock);
-        var storageUserService = new UserService(
+        _storageUserService = new UserService(
             _userRepository,
             _communicationPreferenceRepository,
             AdminAuthorization,
             Substitute.For<IRoleAssignmentClaimsCacheInvalidator>(),
             _pictureStorage,
             Clock,
-            NullLogger<UserService>.Instance);
+            NullLogger<UserService>.Instance, AuditLog);
 
         _service = new ProfileService(
             _userRepository, _userService,
             _pictureStorage);
         _editor = new ProfileEditorService(
             _userService,
-            _pictureStorage,
             NullLogger<ProfileEditorService>.Instance);
 
         _userService.StubGetUserInfosFromContext(Db);
@@ -67,7 +67,7 @@ public sealed class ProfileServiceTests : ServiceTestHarness
                 Arg.Any<UserProfileSaveCommand>(),
                 Arg.Any<byte[]?>(),
                 Arg.Any<CancellationToken>())
-            .Returns(call => storageUserService.SaveProfileAsync(
+            .Returns(call => _storageUserService.SaveProfileAsync(
                 call.ArgAt<Guid>(0),
                 call.ArgAt<UserProfileSaveCommand>(1),
                 call.ArgAt<byte[]?>(2),
@@ -83,9 +83,10 @@ public sealed class ProfileServiceTests : ServiceTestHarness
         await SeedUserAsync(userId);
         var request = MakeRequest(burnerName: "Flame", firstName: "Jane", lastName: "Doe");
 
-        var profileId = await _editor.SaveProfileAsync(userId, "Jane Doe", request, ct: Xunit.TestContext.Current.CancellationToken);
+        var save = await _editor.SaveProfileAsync(userId, "Jane Doe", request, ct: Xunit.TestContext.Current.CancellationToken);
 
-        profileId.Should().NotBe(Guid.Empty);
+        save.Succeeded.Should().BeTrue();
+        save.ProfileId.Should().NotBeNull().And.NotBe(Guid.Empty);
         var profile = await Db.Profiles.AsNoTracking().FirstAsync(p => p.UserId == userId, Xunit.TestContext.Current.CancellationToken);
         profile.BurnerName.Should().Be("Flame");
         profile.FirstName.Should().Be("Jane");
@@ -193,8 +194,9 @@ public sealed class ProfileServiceTests : ServiceTestHarness
         var profile = await Db.Profiles.AsNoTracking().FirstAsync(p => p.UserId == userId, Xunit.TestContext.Current.CancellationToken);
         // Content-type column is the "has picture" marker + extension source.
         profile.ProfilePictureContentType.Should().Be("image/jpeg");
-        // Bytes live on the file share, keyed under uploads/profile-pictures/.
-        var key = PicKey(profile.Id, "image/jpeg");
+        // Bytes live on the file share at the versioned key stored on the profile.
+        var key = profile.ProfilePictureStorageKey!;
+        key.Should().StartWith($"uploads/profile-pictures/{profile.Id}-").And.EndWith(".jpg");
         _fileStorage.Files.Should().ContainKey(key);
         _fileStorage.Files[key].Should().BeEquivalentTo(payload);
         _fileStorage.Files.Should().NotContainKey(PicKey(profile.Id, "image/png"));
@@ -271,6 +273,123 @@ public sealed class ProfileServiceTests : ServiceTestHarness
         picture!.Value.ContentType.Should().Be("image/jpeg");
         picture.Value.Data.Should().Equal(4, 5, 6);
         await _pictureStorage.Received(1).DeleteAsync(PicKey(profileId, "image/png"), CancellationToken.None);
+    }
+
+    [HumansFact]
+    public async Task SaveProfileAsync_SameContentTypeReplace_FailedMetadataSaveKeepsThePreviousBytes()
+    {
+        var userId = Guid.NewGuid();
+        var profileId = await SeedUserWithProfileAsync(userId, withPicture: true);
+        var existing = await Db.Profiles.AsNoTracking().FirstAsync(p => p.Id == profileId, Xunit.TestContext.Current.CancellationToken);
+        var failingRepo = Substitute.For<IUserRepository>();
+        failingRepo.GetByUserIdAsync(userId, Arg.Any<CancellationToken>()).Returns(existing);
+        failingRepo.UpdateAsync(Arg.Any<Profile>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Database unavailable"));
+        var sut = new UserService(
+            failingRepo,
+            _communicationPreferenceRepository,
+            AdminAuthorization,
+            Substitute.For<IRoleAssignmentClaimsCacheInvalidator>(),
+            _pictureStorage,
+            Clock,
+            NullLogger<UserService>.Instance, AuditLog);
+        var command = new UserProfileSaveCommand(
+            "Updated name", "TestBurner", "Test", "User", null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, false, UserProfilePictureMutation.Set, "image/png");
+
+        var act = () => sut.SaveProfileAsync(userId, command, [4, 5, 6], Xunit.TestContext.Current.CancellationToken);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        _fileStorage.Files[PicKey(profileId, "image/png")].Should().Equal(1, 2, 3);
+        _fileStorage.Files.Keys.Should().ContainSingle().Which.Should().Be(PicKey(profileId, "image/png"));
+        var profile = await Db.Profiles.AsNoTracking().FirstAsync(p => p.Id == profileId, Xunit.TestContext.Current.CancellationToken);
+        profile.ProfilePictureContentType.Should().Be("image/png");
+        profile.ProfilePictureStorageKey.Should().BeNull();
+    }
+
+    [HumansFact]
+    public async Task SaveProfileAsync_PostCommitDisplayNameFailure_StillDeletesThePreviousFile()
+    {
+        var userId = Guid.NewGuid();
+        var profileId = await SeedUserWithProfileAsync(userId, withPicture: true);
+        var existing = await Db.Profiles.AsNoTracking().FirstAsync(p => p.Id == profileId, Xunit.TestContext.Current.CancellationToken);
+        var repo = Substitute.For<IUserRepository>();
+        repo.GetByUserIdAsync(userId, Arg.Any<CancellationToken>()).Returns(existing);
+        repo.UpdateDisplayNameAsync(userId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Display name update failed"));
+        var sut = new UserService(
+            repo,
+            _communicationPreferenceRepository,
+            AdminAuthorization,
+            Substitute.For<IRoleAssignmentClaimsCacheInvalidator>(),
+            _pictureStorage,
+            Clock,
+            NullLogger<UserService>.Instance, AuditLog);
+        var command = new UserProfileSaveCommand(
+            "Updated name", "TestBurner", "Test", "User", null, null, null, null, null, null, null, null, null,
+            null, null, null, null, null, false, UserProfilePictureMutation.Set, "image/png");
+
+        var act = () => sut.SaveProfileAsync(userId, command, [4, 5, 6], Xunit.TestContext.Current.CancellationToken);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        _fileStorage.Files.Should().NotContainKey(PicKey(profileId, "image/png"));
+        _fileStorage.Files.Should().ContainSingle();
+    }
+
+    [HumansFact]
+    public async Task SaveProfileAsync_SuccessfulReplace_WritesAVersionedKeyAndDeletesThePreviousFile()
+    {
+        var userId = Guid.NewGuid();
+        var profileId = await SeedUserWithProfileAsync(userId, withPicture: true);
+
+        await _editor.SaveProfileAsync(userId, "Updated name",
+            MakeRequest(pictureData: [4, 5, 6], pictureContentType: "image/png"), ct: Xunit.TestContext.Current.CancellationToken);
+
+        var profile = await Db.Profiles.AsNoTracking().FirstAsync(p => p.Id == profileId, Xunit.TestContext.Current.CancellationToken);
+        profile.ProfilePictureStorageKey.Should().NotBeNullOrEmpty()
+            .And.NotBe(PicKey(profileId, "image/png"));
+        _fileStorage.Files.Should().NotContainKey(PicKey(profileId, "image/png"));
+        _fileStorage.Files.Keys.Should().ContainSingle().Which.Should().Be(profile.ProfilePictureStorageKey);
+        var picture = await _service.GetProfilePictureAsync(profileId, Xunit.TestContext.Current.CancellationToken);
+        picture!.Value.Data.Should().Equal(4, 5, 6);
+
+        var firstVersionedKey = profile.ProfilePictureStorageKey!;
+        await _editor.SaveProfileAsync(userId, "Updated name",
+            MakeRequest(pictureData: [7, 8, 9], pictureContentType: "image/png"), ct: Xunit.TestContext.Current.CancellationToken);
+
+        var replaced = await Db.Profiles.AsNoTracking().FirstAsync(p => p.Id == profileId, Xunit.TestContext.Current.CancellationToken);
+        replaced.ProfilePictureStorageKey.Should().NotBe(firstVersionedKey);
+        _fileStorage.Files.Keys.Should().ContainSingle().Which.Should().Be(replaced.ProfilePictureStorageKey);
+    }
+
+    [HumansFact]
+    public async Task GetProfilePictureAsync_NullStorageKey_ResolvesTheLegacyDeterministicKey()
+    {
+        var userId = Guid.NewGuid();
+        var profileId = await SeedUserWithProfileAsync(userId, withPicture: true);
+        (await Db.Profiles.AsNoTracking().FirstAsync(p => p.Id == profileId, Xunit.TestContext.Current.CancellationToken))
+            .ProfilePictureStorageKey.Should().BeNull();
+
+        var picture = await _service.GetProfilePictureAsync(profileId, Xunit.TestContext.Current.CancellationToken);
+
+        picture.Should().NotBeNull();
+        picture!.Value.Data.Should().Equal(1, 2, 3);
+    }
+
+    [HumansFact]
+    public async Task EraseForUserAsync_DeletesTheVersionedPictureFile()
+    {
+        var userId = Guid.NewGuid();
+        var profileId = await SeedUserWithProfileAsync(userId, withPicture: true);
+        const string versionedKey = "uploads/profile-pictures/versioned.png";
+        var profile = await Db.Profiles.FirstAsync(p => p.Id == profileId, Xunit.TestContext.Current.CancellationToken);
+        profile.ProfilePictureStorageKey = versionedKey;
+        await Db.SaveChangesAsync(Xunit.TestContext.Current.CancellationToken);
+        await _fileStorage.SaveAsync(versionedKey, [4, 5, 6], Xunit.TestContext.Current.CancellationToken);
+
+        await _storageUserService.EraseForUserAsync(userId, Xunit.TestContext.Current.CancellationToken);
+
+        _fileStorage.Files.Should().NotContainKey(versionedKey);
     }
 
     [HumansFact]
@@ -461,14 +580,14 @@ public sealed class ProfileServiceTests : ServiceTestHarness
         Substitute.For<IRoleAssignmentClaimsCacheInvalidator>(),
         Substitute.For<IFileStorage>(),
         Clock,
-        NullLogger<UserService>.Instance);
+        NullLogger<UserService>.Instance, AuditLog);
 
     // --- Helpers ---
 
     // --- SaveProfileAsync workflow (audit P1-P4) ---
 
     [HumansFact]
-    public async Task SaveProfileAsync_AllergyOtherWithoutText_Throws()
+    public async Task SaveProfileAsync_AllergyOtherWithoutText_ReturnsRefusalWithoutWrites()
     {
         var userId = Guid.NewGuid();
         await SeedUserAsync(userId);
@@ -480,12 +599,18 @@ public sealed class ProfileServiceTests : ServiceTestHarness
 
         var act = () => _editor.SaveProfileAsync(userId, "Test", request, ct: Xunit.TestContext.Current.CancellationToken);
 
-        await act.Should().ThrowAsync<System.ComponentModel.DataAnnotations.ValidationException>()
-            .WithMessage("*Other*allergy*");
+        var result = await act();
+
+        result.Succeeded.Should().BeFalse();
+        result.ProfileId.Should().BeNull();
+        result.ErrorKey.Should().Be("Profile_DietaryMedical_AllergyOther_Required");
+        await _userService.DidNotReceiveWithAnyArgs().SaveProfileAsync(default, default!, default, default);
+        await _userService.DidNotReceiveWithAnyArgs().SaveProfileVolunteerHistoryAsync(default, default!, default);
+        (await Db.Profiles.CountAsync(Xunit.TestContext.Current.CancellationToken)).Should().Be(0);
     }
 
     [HumansFact]
-    public async Task SaveProfileAsync_EmptyCvWithoutNoPriorExperienceFlag_Throws()
+    public async Task SaveProfileAsync_EmptyCvWithoutNoPriorExperienceFlag_ReturnsRefusalWithoutWrites()
     {
         var userId = Guid.NewGuid();
         await SeedUserAsync(userId);
@@ -493,8 +618,14 @@ public sealed class ProfileServiceTests : ServiceTestHarness
 
         var act = () => _editor.SaveProfileAsync(userId, "Test", request, ct: Xunit.TestContext.Current.CancellationToken);
 
-        await act.Should().ThrowAsync<System.ComponentModel.DataAnnotations.ValidationException>()
-            .WithMessage("*Burner CV*");
+        var result = await act();
+
+        result.Succeeded.Should().BeFalse();
+        result.ProfileId.Should().BeNull();
+        result.ErrorKey.Should().Be("Profile_BurnerCVRequired");
+        await _userService.DidNotReceiveWithAnyArgs().SaveProfileAsync(default, default!, default, default);
+        await _userService.DidNotReceiveWithAnyArgs().SaveProfileVolunteerHistoryAsync(default, default!, default);
+        (await Db.Profiles.CountAsync(Xunit.TestContext.Current.CancellationToken)).Should().Be(0);
     }
 
     [HumansFact]
@@ -513,6 +644,27 @@ public sealed class ProfileServiceTests : ServiceTestHarness
     }
 
     [HumansFact]
+    public async Task SaveProfileAsync_NameOnlySavePreservesIncompleteDietaryData()
+    {
+        var userId = Guid.NewGuid();
+        var profileId = await SeedUserWithProfileAsync(userId);
+        var existing = await Db.Profiles.FirstAsync(profile => profile.Id == profileId, Xunit.TestContext.Current.CancellationToken);
+        existing.DietaryPreference = "Vegan";
+        existing.Allergies = [DietaryOptions.OtherOption];
+        existing.AllergyOtherText = null;
+        await Db.SaveChangesAsync(Xunit.TestContext.Current.CancellationToken);
+
+        var result = await _editor.SaveProfileAsync(userId, "Named", MakeRequest(burnerName: "Named"), Xunit.TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeTrue();
+        var saved = await Db.Profiles.AsNoTracking().FirstAsync(profile => profile.Id == profileId, Xunit.TestContext.Current.CancellationToken);
+        saved.BurnerName.Should().Be("Named");
+        saved.DietaryPreference.Should().Be("Vegan");
+        saved.Allergies.Should().Equal(DietaryOptions.OtherOption);
+        saved.AllergyOtherText.Should().BeNull();
+    }
+
+    [HumansFact]
     public async Task SaveProfileAsync_WithCvPayload_SavesVolunteerHistory()
     {
         var userId = Guid.NewGuid();
@@ -526,6 +678,23 @@ public sealed class ProfileServiceTests : ServiceTestHarness
             userId,
             Arg.Is<List<CVEntry>>(l => l.Count == 1 && l[0].EventName == "Nowhere"),
             Arg.Any<CancellationToken>());
+    }
+
+    [HumansTheory]
+    [Xunit.InlineData(false)]
+    [Xunit.InlineData(true)]
+    public async Task SaveDietaryMedicalAsync_returns_other_description_refusals_without_writes(bool intolerance)
+    {
+        var command = new UserProfileDietaryMedicalCommand(null,
+            intolerance ? [] : [DietaryOptions.OtherOption], " ",
+            intolerance ? [DietaryOptions.OtherOption] : [], " ", "Existing medical details");
+
+        var result = await _editor.SaveDietaryMedicalAsync(Guid.NewGuid(), command, Xunit.TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeFalse();
+        result.ErrorKey.Should().Be(intolerance
+            ? "Profile_DietaryMedical_IntoleranceOther_Required" : "Profile_DietaryMedical_AllergyOther_Required");
+        await _userService.DidNotReceiveWithAnyArgs().SaveDietaryMedicalAsync(default, default!, default);
     }
 
     private async Task SeedUserAsync(Guid userId,

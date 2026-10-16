@@ -4,6 +4,7 @@ using Humans.AuditLog.Contracts;
 using Humans.Base.Configuration;
 using Humans.Base.Authorization;
 using Humans.Base.Controllers;
+using Humans.Base.Extensions;
 using Humans.Email.Domain;
 using Humans.Email.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -87,7 +88,10 @@ internal sealed class EmailController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> PauseEmailSending()
     {
-        await outboxService.SetEmailPausedAsync(true);
+        var actorId = GetCurrentUserId();
+        if (actorId is null) return Unauthorized();
+
+        await outboxService.SetEmailPausedAsync(true, actorId.Value);
         logger.LogInformation("Admin {AdminId} paused email sending", User.Identity?.Name);
         SetSuccess("Email sending paused.");
         return Redirect("/Settings#email");
@@ -98,7 +102,10 @@ internal sealed class EmailController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ResumeEmailSending()
     {
-        await outboxService.SetEmailPausedAsync(false);
+        var actorId = GetCurrentUserId();
+        if (actorId is null) return Unauthorized();
+
+        await outboxService.SetEmailPausedAsync(false, actorId.Value);
         logger.LogInformation("Admin {AdminId} resumed email sending", User.Identity?.Name);
         SetSuccess("Email sending resumed.");
         return Redirect("/Settings#email");
@@ -108,7 +115,10 @@ internal sealed class EmailController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> RetryEmailOutboxMessage(Guid id)
     {
-        var recipient = await outboxService.RetryMessageAsync(id);
+        var actorId = GetCurrentUserId();
+        if (actorId is null) return Unauthorized();
+
+        var recipient = await outboxService.RetryMessageAsync(id, actorId.Value);
         if (recipient is null) return NotFound();
 
         SetSuccess($"Message to {recipient} queued for retry.");
@@ -119,16 +129,15 @@ internal sealed class EmailController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> DiscardEmailOutboxMessage(Guid id)
     {
-        var recipient = await outboxService.DiscardMessageAsync(id);
+        var actorId = GetCurrentUserId();
+        if (actorId is null) return Unauthorized();
+
+        var recipient = await outboxService.DiscardMessageAsync(id, actorId.Value);
         if (recipient is null) return NotFound();
 
         SetSuccess($"Message to {recipient} discarded.");
         return RedirectToAction(nameof(EmailOutbox));
     }
-
-    // Persona + culture data for the gallery, held here so EmailPreview itself is just
-    // "loop cultures, ask the contributors, return the view".
-    private static readonly string[] Cultures = ["en", "es", "de", "fr", "it", "ca"];
 
     private static readonly Dictionary<string, (string Name, string Email)> Personas = new(StringComparer.Ordinal)
     {
@@ -154,7 +163,7 @@ internal sealed class EmailController(
         var contributorList = contributors.ToList();
         var previews = new Dictionary<string, List<EmailPreviewItem>>(StringComparer.Ordinal);
 
-        foreach (var culture in Cultures)
+        foreach (var culture in CultureCatalog.SupportedCultureCodes)
         {
             var (name, email) = Personas[culture];
 

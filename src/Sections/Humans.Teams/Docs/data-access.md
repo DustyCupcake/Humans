@@ -89,11 +89,15 @@ Cross-section calls via `IAuditLogService`, `INotificationEmitter`,
 `IEarlyEntryInvalidator`, `IShiftAuthorizationInvalidator`,
 `INotificationMeterCacheInvalidator`; lazy-resolved via `IServiceProvider` for
 cycle-breaking: `IGoogleSyncOutboxService` (transactional outbox appends),
-`IGoogleSyncService`, `ITeamResourceService`, `IRoleAssignmentService`,
+`IGoogleSyncService`, `ITeamResourceServiceRead`, `IRoleAssignmentServiceRead`,
 `IEmailService`, `IUserServiceRead`, `ISystemTeamSync`. Implements `ITeamManagementService`
 (internal, `: ITeamService`), `ITeamSeeding`,
 `IGoogleGroupMembershipSource`, `IUserDataContributor`, `IUserMerge`,
 `IEarlyEntryProvider` (role-gated team early entry).
+
+### TeamDriveAccessSource (Scoped)
+
+Implements `IGoogleDriveAccessSource` over the existing `ITeamServiceRead` and `ITeamResourceServiceRead` bulk projections. Owns membership union, maximum permission levels and active child-team rollup for linked Drive resources. Returns user-ID claims and team-link display metadata; inactive teams retain empty claims so reconciliation can revoke grants before retiring linked resources. No repository or cache.
 
 **Outbox write goes through the owning service:**
 `GoogleSyncOutboxEvents` is owned by the Google Integration section.
@@ -116,7 +120,7 @@ snapshot, never the DB. Surfaced on `/Debug/CacheStats`.
 ### TeamPageService / TeamPageSummaryMapper / TeamDirectoryBuilder
 
 Read-only assemblers — no repository, no cache. `TeamPageService` fans out
-over `ITeamManagementService`, `ITeamResourceService`,
+over `ITeamManagementService`, `ITeamResourceServiceRead`,
 `IShiftManagementServiceRead`, `ISettingsService` and `IUserServiceRead`;
 the mapper and the directory builder are pure.
 

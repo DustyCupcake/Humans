@@ -26,15 +26,17 @@ internal interface IExpenseReportService : IExpenseReportServiceRead, IApplicati
     /// <summary>All expense reports, all statuses — dashboard/aggregate reads sum client-side (small dataset).</summary>
     Task<IReadOnlyList<ExpenseReportDto>> GetAllAsync(CancellationToken ct = default);
 
-    /// <summary>Creates a draft owned by <paramref name="submitterUserId"/>. When
-    /// <paramref name="actorUserId"/> is someone else, the creation is audited as on-behalf.</summary>
+    /// <summary>Creates a draft owned by <paramref name="submitterUserId"/>, booked to the Holded
+    /// expense account <paramref name="holdedAccountNumber"/> (its budget category, when it has one,
+    /// is derived from Finance's map). When <paramref name="actorUserId"/> is someone else, the
+    /// creation is audited as on-behalf.</summary>
     Task<Guid> CreateDraftAsync(
-        Guid submitterUserId, Guid actorUserId, Guid budgetCategoryId, string? note,
+        Guid submitterUserId, Guid actorUserId, int holdedAccountNumber, string? note,
         CancellationToken ct = default);
 
     Task<ExpenseMutationResult> UpdateDraftWithResultAsync(
         Guid reportId, Guid actorUserId, bool actorIsFinanceAdmin,
-        Guid budgetCategoryId, string? note,
+        int holdedAccountNumber, string? note,
         CancellationToken ct = default);
 
     /// <summary>
@@ -42,7 +44,8 @@ internal interface IExpenseReportService : IExpenseReportServiceRead, IApplicati
     /// one is supplied (validated before the line is created, so a bad upload leaves nothing
     /// half-made). A non-null <paramref name="parentLineId"/> adds a proof row backing that Invoice
     /// line — reviewed with the report but excluded from the total and never pushed to Holded.
-    /// Travel line types are rejected (their creation paths were removed).
+    /// Travel line types are rejected: their amounts are computed, so they go through the
+    /// Mileage/PerDiem add methods.
     /// </summary>
     Task<ExpenseAddLineResult> AddLineWithResultAsync(
         Guid reportId, Guid actorUserId, bool actorIsFinanceAdmin,
@@ -71,7 +74,7 @@ internal interface IExpenseReportService : IExpenseReportServiceRead, IApplicati
     /// Authorizes: actor may edit the report + editable status + line belongs to report.
     /// Idempotent — no-op if the line has no attachment.
     /// </summary>
-    Task RemoveAttachmentFromLineAsync(
+    Task<ExpenseMutationResult> RemoveAttachmentFromLineAsync(
         Guid reportId, Guid actorUserId, bool actorIsFinanceAdmin,
         Guid lineId, CancellationToken ct = default);
 
@@ -101,9 +104,10 @@ internal interface IExpenseReportService : IExpenseReportServiceRead, IApplicati
         Guid reportId, Guid coordinatorUserId, bool actorIsFinanceAdmin, string reason,
         CancellationToken ct = default);
 
-    /// <summary>A non-null <paramref name="maxAmount"/> overrides any cap the coordinator set.</summary>
+    /// <summary>A non-null <paramref name="maxAmount"/> overrides any cap the coordinator set; a non-null
+    /// <paramref name="overrideAccountNumber"/> rebooks the report to that account.</summary>
     Task<ExpenseMutationResult> ApproveWithResultAsync(
-        Guid reportId, Guid actorUserId, Guid? overrideCategoryId, decimal? maxAmount,
+        Guid reportId, Guid actorUserId, int? overrideAccountNumber, decimal? maxAmount,
         CancellationToken ct = default);
 
     Task<ExpenseMutationResult> FinanceRejectWithResultAsync(
@@ -132,16 +136,22 @@ internal interface IExpenseReportService : IExpenseReportServiceRead, IApplicati
     Task<IReadOnlyList<Guid>> GetFailedHoldedPushReportIdsAsync(CancellationToken ct = default);
 }
 
-internal sealed record ExpenseMutationResult(bool Succeeded, string? ErrorMessage)
+internal sealed record ExpenseMutationResult(bool Succeeded, ExpenseError? Error)
 {
     public static ExpenseMutationResult Success { get; } = new(true, null);
 
-    public static ExpenseMutationResult Failure(string message) => new(false, message);
+    public static ExpenseMutationResult Failure(string resourceKey, params object[] arguments) =>
+        new(false, new ExpenseError(resourceKey, arguments));
+
+    public static ExpenseMutationResult OperatorFailure(string message) => new(false, new ExpenseError(null, [], message));
 }
 
 /// <summary>Line-add outcome; <see cref="LineId"/> is set on success so the caller can redirect
 /// into the new line's flow (an invoice line continues to its proofs page).</summary>
-internal sealed record ExpenseAddLineResult(bool Succeeded, string? ErrorMessage, Guid? LineId);
+internal sealed record ExpenseAddLineResult(bool Succeeded, ExpenseError? Error, Guid? LineId);
+
+/// <summary>A member resource key with format arguments, or feedback for an operator-only action.</summary>
+internal sealed record ExpenseError(string? ResourceKey, object[] Arguments, string? OperatorMessage = null);
 
 /// <summary>An uploaded file passed through to the service untouched.</summary>
 internal sealed record ExpenseFileUpload(string FileName, string ContentType, Stream Content);

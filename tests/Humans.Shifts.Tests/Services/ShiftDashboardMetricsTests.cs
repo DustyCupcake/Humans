@@ -44,7 +44,7 @@ public sealed class ShiftDashboardMetricsTests : ShiftsTestHarness
             .With<ITicketServiceRead>(fakeTicketService)
             .With<IUserService>(fakeUserService)
             .With<IUserServiceRead>(fakeUserService)
-            .With<IRoleAssignmentService>()
+            .With<IRoleAssignmentServiceRead>()
             .Build();
 
         var repo = new ShiftRepository(ShiftsDbFactory, ShiftsDb, Clock);
@@ -57,7 +57,8 @@ public sealed class ShiftDashboardMetricsTests : ShiftsTestHarness
             Cache,
             Substitute.For<IShiftViewInvalidator>(),
             NewCalendarResolver(),
-            Clock);
+            Clock,
+            NSubstitute.Substitute.For<Humans.EarlyEntry.Contracts.IEarlyEntryInvalidator>(), Microsoft.Extensions.Logging.Abstractions.NullLogger<ShiftManagementService>.Instance);
     }
 
     [HumansFact]
@@ -1114,6 +1115,9 @@ public sealed class ShiftDashboardMetricsTests : ShiftsTestHarness
         public Task<IReadOnlyList<TicketOrderInfo>> GetTicketOrdersAsync(CancellationToken ct = default) =>
             Task.FromResult(orders);
 
+        public Task<TicketAttendeeInfo?> FindCurrentEventAttendeeByBarcodeAsync(string? barcode, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
         public Task<UserTicketHoldings> GetUserTicketHoldingsAsync(Guid userId, CancellationToken ct = default) =>
             throw new NotSupportedException();
     }
@@ -1168,7 +1172,7 @@ public sealed class ShiftDashboardMetricsTests : ShiftsTestHarness
         public Task SetParticipationFromTicketSyncAsync(Guid userId, int year, ParticipationStatus status, Instant? checkedInAt, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<OnsiteUserRow>> GetOnsiteUsersAsync(int year, CancellationToken ct = default) => throw new NotSupportedException();
         public Task RemoveTicketSyncParticipationAsync(Guid userId, int year, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<bool> TrySetGoogleEmailStatusFromSyncAsync(Guid userId, GoogleEmailStatus status, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> TrySetGoogleEmailStatusFromSyncAsync(Guid userId, GoogleEmailStatus status, CancellationToken ct = default, Guid? googleEmailId = null) => throw new NotSupportedException();
         public Task SetPreferredLanguageAsync(Guid userId, string preferredLanguage, CancellationToken ct = default) => throw new NotSupportedException();
         public Task RecordLoginAsync(Guid userId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<bool> SetMembershipTierAsync(Guid userId, MembershipTier tier, CancellationToken ct = default) => throw new NotSupportedException();

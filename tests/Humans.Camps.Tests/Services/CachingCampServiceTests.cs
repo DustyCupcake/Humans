@@ -1,6 +1,7 @@
 using AwesomeAssertions;
 using Humans.EarlyEntry.Contracts;
 using Humans.Base.Enums;
+using Humans.Base.Interfaces.Caching;
 using Humans.Base.Extensions;
 using Humans.Settings.Contracts;
 using Microsoft.EntityFrameworkCore;
@@ -28,16 +29,28 @@ public sealed class CachingCampServiceTests : CampsTestHarness
 {
     private readonly ServiceProvider _serviceProvider;
     private readonly ICampService _innerSubstitute;
-    private readonly ICampRoleCampAccess _innerRoleAccess;
     private readonly ISettingsService _settingsService;
     private readonly CachingCampService _service;
 
     public CachingCampServiceTests()
     {
-        _innerSubstitute = Substitute.For<ICampService, ICampRoleCampAccess, IUserMerge>();
-        _innerRoleAccess = (ICampRoleCampAccess)_innerSubstitute;
+        _innerSubstitute = Substitute.For<ICampService, IUserMerge>();
         _settingsService = Substitute.For<ISettingsService>();
         var repo = new CampRepository(CampsDbFactory);
+        var inner = new CampService(
+            repo, AuditLog, Substitute.For<Humans.Teams.Contracts.ISystemTeamSync>(),
+            new InMemoryFileStorage(), Notifier,
+            Substitute.For<ICampLeadJoinRequestsBadgeCacheInvalidator>(),
+            new Lazy<ICampRoleService>(() => Substitute.For<ICampRoleService>()),
+            new Lazy<Humans.CityPlanning.Contracts.ICityPlanningService>(() =>
+                Substitute.For<Humans.CityPlanning.Contracts.ICityPlanningService>()),
+            Substitute.For<IEarlyEntryInvalidator>(), Substitute.For<ICampInfoInvalidator>(),
+            Substitute.For<Humans.Users.Contracts.IUserServiceRead>(), _settingsService,
+            Clock, NullLogger<CampService>.Instance);
+        _innerSubstitute.GetActiveYearAsync(Arg.Any<CancellationToken>())
+            .Returns(ci => inner.GetActiveYearAsync(ci.Arg<CancellationToken>()));
+        _innerSubstitute.GetEarlyEntriesAsync(Arg.Any<CancellationToken>())
+            .Returns(ci => inner.GetEarlyEntriesAsync(ci.Arg<CancellationToken>()));
         _innerSubstitute.GetSettingsAsync(Arg.Any<CancellationToken>())
             .Returns(ci => LoadSettingsAsync(ci.Arg<CancellationToken>()));
         _innerSubstitute.GetCampsForYearAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -52,13 +65,9 @@ public sealed class CachingCampServiceTests : CampsTestHarness
         services.AddKeyedScoped<ICampService>(
             CachingCampService.InnerServiceKey,
             (_, _) => _innerSubstitute);
-        services.AddKeyedScoped<ICampRoleCampAccess>(
-            CachingCampService.InnerServiceKey,
-            (_, _) => _innerRoleAccess);
         services.AddKeyedScoped<IUserMerge>(
             CachingCampService.InnerServiceKey,
             (_, _) => (IUserMerge)_innerSubstitute);
-        services.AddScoped(_ => _settingsService);
         _serviceProvider = services.BuildServiceProvider();
 
         _service = new CachingCampService(
@@ -98,7 +107,7 @@ public sealed class CachingCampServiceTests : CampsTestHarness
     /// so every list-based read — the camps index, search, the profile card — is blind to the
     /// new camp until some unrelated later mutation happens to invalidate it. The dev-persona
     /// flow usually approves the season next and hides it; a cancellation between the two
-    /// leaves the stale result indefinitely. Caught by Codex on peterdrier/Humans#1288.
+    /// leaves the stale result indefinitely.
     /// </summary>
     [HumansFact]
     public async Task CreateCampForSeedAsync_MakesTheNewCampVisibleToListReads()
@@ -118,7 +127,7 @@ public sealed class CachingCampServiceTests : CampsTestHarness
                 Arg.Any<string?>(), Arg.Any<List<CampLink>?>(), Arg.Any<bool>(), Arg.Any<int>(),
                 Arg.Any<CampSeasonData>(), Arg.Any<List<string>?>(), Arg.Any<int>(),
                 Arg.Any<CancellationToken>())
-            .Returns(seeded.camp);
+            .Returns(new CampWriteResult<Camp>(seeded.camp));
 
         var newCampId = await ((ICampSeeding)_service).CreateCampForSeedAsync(
             createdByUserId: Guid.NewGuid(),
@@ -157,7 +166,7 @@ public sealed class CachingCampServiceTests : CampsTestHarness
             ElectricalGrid: null);
 
     // ==========================================================================
-    // P1 — RefreshEntryAsync rebuilds EeGrantedCount from loaded members
+    // P1 — InvalidateCampAsync rebuilds EeGrantedCount from loaded members
     // ==========================================================================
 
     [HumansFact]
@@ -182,7 +191,7 @@ public sealed class CachingCampServiceTests : CampsTestHarness
         // Now flip an existing member's HasEarlyEntry directly in the db and
         // call InvalidateCampAsync — this is the exact path the decorator's
         // write methods (SetEarlyEntryAsync, RemoveCampMemberAsync, …) take:
-        // RefreshEntryAsync → _repo.GetByIdAsync → projection.
+        // InvalidateCampAsync → _repo.GetByIdAsync → projection.
         var third = CampsDb.CampMembers
             .First(m => m.CampSeasonId == season.Id && !m.HasEarlyEntry);
         third.HasEarlyEntry = true;
@@ -195,7 +204,7 @@ public sealed class CachingCampServiceTests : CampsTestHarness
             .Single(c => c.Id == camp.Id)
             .Seasons.Single(s => s.Year == 2026);
         refreshedSeason.EeGrantedCount.Should().Be(3,
-            because: "RefreshEntryAsync must load Seasons.Members so the rebuilt CampInfo reflects the new EE count — without the Include, the projection sees zero members and reports 0");
+            because: "InvalidateCampAsync must load Seasons.Members so the rebuilt CampInfo reflects the new EE count — without the Include, the projection sees zero members and reports 0");
     }
 
     // ==========================================================================
@@ -375,7 +384,6 @@ public sealed class CachingCampServiceTests : CampsTestHarness
 
         _ = await _service.GetCampsForYearAsync(2026, TestContext.Current.CancellationToken);
         _innerSubstitute.ClearReceivedCalls();
-        _innerRoleAccess.ClearReceivedCalls();
 
         var result = await _service.GetCampSeasonsForComplianceAsync(2026, TestContext.Current.CancellationToken);
 
@@ -387,9 +395,6 @@ public sealed class CachingCampServiceTests : CampsTestHarness
         await _innerSubstitute
             .DidNotReceive()
             .GetCampsForYearAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _innerRoleAccess
-            .DidNotReceive()
-            .GetCampSeasonsForComplianceAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [HumansFact]
@@ -414,7 +419,7 @@ public sealed class CachingCampServiceTests : CampsTestHarness
     }
 
     [HumansFact]
-    public async Task GetEarlyEntriesAsync_WarmYear_ProjectsFromCachedCampInfoMembers()
+    public async Task GetEarlyEntriesAsync_DelegatesToInnerActiveMemberProjection()
     {
         var eeStartDate = new LocalDate(2026, 7, 7);
         _settingsService.GetActiveEventSettingsAsync(Arg.Any<CancellationToken>())
@@ -625,7 +630,7 @@ public sealed class CachingCampServiceTests : CampsTestHarness
         {
             season.Status = CampSeasonStatus.Full;
             await SaveAllAsync(ct);
-            throw failure;
+            return await Task.FromException<CampUpdateResult>(failure);
         });
 
         Func<Task> change = () => _service.SetSeasonStatusAsync(camp.Id, season.Id, CampSeasonStatus.Full, ct);
@@ -746,7 +751,7 @@ public sealed class CachingCampServiceTests : CampsTestHarness
                 Arg.Any<string?>(), Arg.Any<List<CampLink>?>(), Arg.Any<bool>(), Arg.Any<int>(),
                 Arg.Any<CampSeasonData>(), Arg.Any<List<string>?>(), Arg.Any<int>(),
                 Arg.Any<CancellationToken>())
-            .Returns(camp);
+            .Returns(new CampWriteResult<Camp>(camp));
     }
 
     private async Task<(Camp camp, CampSeason season)> SeedCampWithSeasonAsync(

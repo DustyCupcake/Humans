@@ -22,7 +22,7 @@ Repository: `INotificationRepository`.
 |-----------|-----|------|-------|------------|
 | `NotificationBadge:{userId}` | 2 min | | | yes (on dispatch) |
 
-Cross-section calls via `INotificationEmitter`, `IRoleAssignmentService`,
+Cross-section calls via `INotificationEmitter`, `IRoleAssignmentServiceRead`,
 `ICommunicationPreferenceService`, `IClock`. Implements `IUserMerge`.
 
 ### NotificationEmitter (Scoped)
@@ -49,12 +49,14 @@ Repository: `INotificationRepository`.
 
 | Table | R/W |
 |-------|-----|
-| Notifications | R |
-| NotificationRecipients | R/W (read state, dismissal) |
+| Notifications | R/W (shared resolution/dismissal) |
+| NotificationRecipients | R/W (per-user read state) |
 
 | Cache Key | TTL | Read | Write | Invalidate |
 |-----------|-----|------|-------|------------|
 | `NotificationBadge:{userId}` | 2 min | yes | yes | yes (on read/dismiss) |
+
+Resolve/dismiss share class-scoped single and bulk repository writes; the service selects the eligible class.
 
 Cross-section calls via `IUserServiceRead`. Implements `IUserDataContributor`.
 

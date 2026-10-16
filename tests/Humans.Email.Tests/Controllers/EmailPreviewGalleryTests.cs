@@ -1,12 +1,14 @@
 using AwesomeAssertions;
 using Humans.AuditLog.Contracts;
 using Humans.Base.Configuration;
+using Humans.Base.Extensions;
 using Humans.Email.Contracts;
 using Humans.Email.Controllers;
 using Humans.Email.Models;
 using Humans.Email.Services;
 using Humans.Users.Contracts;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -50,13 +52,31 @@ public sealed class EmailPreviewGalleryTests
     }
 
     [HumansFact]
+    public async Task OutboxMutations_WithoutActor_RefuseBeforeWriting()
+    {
+        var outbox = Substitute.For<IEmailOutboxService>();
+        var controller = new EmailController(Substitute.For<IUserServiceRead>(), outbox,
+            Substitute.For<IAuditLogService>(), NullLogger<EmailController>.Instance,
+            Options.Create(new EmailSettings()))
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        (await controller.RetryEmailOutboxMessage(Guid.NewGuid())).Should().BeOfType<UnauthorizedResult>();
+        (await controller.DiscardEmailOutboxMessage(Guid.NewGuid())).Should().BeOfType<UnauthorizedResult>();
+        (await controller.PauseEmailSending()).Should().BeOfType<UnauthorizedResult>();
+        (await controller.ResumeEmailSending()).Should().BeOfType<UnauthorizedResult>();
+        outbox.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [HumansFact]
     public void ContributedSamples_RenderInEveryCulture_AskedWithThatCulturesPersona()
     {
         var contributor = new StubContributor("assembly-vote-opened");
 
         var model = Render(contributor);
 
-        contributor.Asked.Select(p => p.Culture).Should().BeEquivalentTo(model.Previews.Keys);
+        contributor.Asked.Select(p => p.Culture).Should().BeEquivalentTo(CultureCatalog.SupportedCultureCodes);
+        model.Previews.Keys.Should().BeEquivalentTo(CultureCatalog.SupportedCultureCodes);
         contributor.Asked.Should().AllSatisfy(p => p.Email.Should().NotBeNullOrWhiteSpace());
         foreach (var (culture, items) in model.Previews)
         {

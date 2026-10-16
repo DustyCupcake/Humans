@@ -3,7 +3,6 @@ using Humans.Budget.Contracts;
 using Humans.Budget.Services;
 using Humans.Finance.Contracts;
 using Humans.Teams.Contracts;
-using Humans.Tickets.Contracts;
 using Humans.Base.Controllers;
 using Humans.Budget.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -17,9 +16,7 @@ namespace Humans.Budget.Controllers;
 
 /// <summary>
 /// Budget's admin surface: years, groups, categories, line items, the ticketing projection,
-/// cash flow and the audit log. Named for what it is; the <c>/Finance</c> route prefix is
-/// unchanged, so no URL moved when the Holded half left for the Finance section
-/// (nobodies-collective/Humans#866, G5). It shares the prefix with
+/// cash flow and the audit log, under the <c>/Finance</c> route prefix it shares with
 /// <c>Humans.Finance.Controllers.FinanceController</c> — the action templates are disjoint.
 /// </summary>
 /// <remarks>
@@ -33,7 +30,6 @@ internal sealed class BudgetAdminController(
     IBudgetService budgetService,
     ITeamServiceRead teamService,
     TicketingBudgetService ticketingBudgetService,
-    ITicketServiceRead ticketQueryService,
     IClock clock,
     IUserServiceRead userService,
     IHoldedFinanceServiceRead holdedFinance,
@@ -142,9 +138,7 @@ internal sealed class BudgetAdminController(
                 return RedirectToAction(nameof(Index));
             }
 
-            var grossTicketRevenue = (await ticketQueryService.GetTicketOrdersAsync())
-                .Where(o => o.PaymentStatus == TicketPaymentStatus.Paid)
-                .Sum(o => o.TotalAmount);
+            var grossTicketRevenue = await ticketingBudgetService.GetGrossTicketRevenueAsync(activeYear);
             var model = BuildCashFlowModel(activeYear, period, grossTicketRevenue);
             return View(model);
         }
@@ -246,14 +240,14 @@ internal sealed class BudgetAdminController(
 
     [HttpPost("Years/{id:guid}/Update")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> UpdateYear(Guid id, string year, string name)
+    public async Task<IActionResult> UpdateYear(Guid id, string year, string name, string? vendorEventId)
     {
         var (errorResult, user) = await RequireCurrentUserAsync();
         if (errorResult is not null) return errorResult;
 
         try
         {
-            await budgetService.UpdateYearAsync(id, year, name, user.Id);
+            await budgetService.UpdateYearAsync(id, year, name, vendorEventId, user.Id);
             SetSuccess("Budget year updated.");
             return RedirectToAction(nameof(Admin));
         }
@@ -611,7 +605,7 @@ internal sealed class BudgetAdminController(
             var actualSold = budgetService.GetActualTicketsSold(ticketingGroup);
             ViewBag.ActualTicketsSold = actualSold;
 
-            var projections = await ticketingBudgetService.GetProjectionsAsync(ticketingGroup.Id);
+            var projections = await budgetService.GetTicketingProjectionEntriesAsync(ticketingGroup.Id);
             if (projections.Count > 0)
             {
                 var projectedRemaining = projections.Sum(p => p.ProjectedTickets);

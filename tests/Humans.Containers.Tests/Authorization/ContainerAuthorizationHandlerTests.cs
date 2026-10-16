@@ -9,6 +9,7 @@ using Humans.Base.Enums;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 using NSubstitute;
+using Xunit;
 
 namespace Humans.Containers.Tests.Authorization;
 
@@ -49,13 +50,14 @@ public sealed class ContainerAuthorizationHandlerTests
     {
         _cityPlanningService.GetSettingsAsync(Arg.Any<CancellationToken>())
             .Returns(MakeSettings(year: 2027, isContainerPlacementOpen: false));
+        _campService.GetCampsForYearAsync(2027, Arg.Any<CancellationToken>())
+            .Returns([CreateCampInfo(year: 2027, isLead: true)]);
 
         var result = await EvaluateAsync(
             CreateUserWithId(LeadUserId),
             ContainerOperationRequirement.Place);
 
         result.Should().BeFalse();
-        await _campService.DidNotReceive().GetCampsForYearAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [HumansFact]
@@ -118,12 +120,58 @@ public sealed class ContainerAuthorizationHandlerTests
         await _campService.DidNotReceive().GetCampsForYearAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    private async Task<bool> EvaluateAsync(ClaimsPrincipal user, ContainerOperationRequirement requirement)
+    [HumansTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Place_MapAdmin_AllowedWhilePlacementIsClosed(bool campAdmin)
+    {
+        _cityPlanningService.GetSettingsAsync(Arg.Any<CancellationToken>(), Arg.Any<int?>())
+            .Returns(MakeSettings(year: 2027, isContainerPlacementOpen: false));
+        var user = campAdmin
+            ? new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()),
+                new Claim(ClaimTypes.Role, RoleNames.CampAdmin)
+            ], "TestAuth"))
+            : CreateUserWithId(LeadUserId);
+        _cityPlanningService.IsCityPlanningTeamMemberAsync(LeadUserId, Arg.Any<CancellationToken>())
+            .Returns(!campAdmin);
+
+        var result = await EvaluateAsync(user, ContainerOperationRequirement.Place, 2027);
+
+        result.Should().BeTrue();
+        await _campService.DidNotReceive().GetCampsForYearAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [HumansTheory]
+    [InlineData(true, true, true)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    public async Task Place_ExplicitYear_UsesThatYearsPhaseAndLead(bool open, bool lead, bool allowed)
+    {
+        _cityPlanningService.GetSettingsAsync(Arg.Any<CancellationToken>(), null)
+            .Returns(MakeSettings(2027, true));
+        _cityPlanningService.GetSettingsAsync(Arg.Any<CancellationToken>(), 2026)
+            .Returns(MakeSettings(2026, open));
+        _campService.GetCampsForYearAsync(2027, Arg.Any<CancellationToken>())
+            .Returns([CreateCampInfo(2027, true)]);
+        _campService.GetCampsForYearAsync(2026, Arg.Any<CancellationToken>())
+            .Returns([CreateCampInfo(2026, lead)]);
+
+        var result = await EvaluateAsync(CreateUserWithId(LeadUserId), ContainerOperationRequirement.Place, 2026);
+
+        result.Should().Be(allowed);
+        // Settings for a request-supplied year are read (and so created) only for its camp lead.
+        await _cityPlanningService.Received(lead ? 1 : 0).GetSettingsAsync(Arg.Any<CancellationToken>(), 2026);
+        await _campService.DidNotReceive().GetCampsForYearAsync(2027, Arg.Any<CancellationToken>());
+    }
+
+    private async Task<bool> EvaluateAsync(ClaimsPrincipal user, ContainerOperationRequirement requirement, int? year = null)
     {
         var context = new AuthorizationHandlerContext(
             [requirement],
             user,
-            ContainerAuthorizationTarget.ForCamp(CampId));
+            new ContainerAuthorizationTarget(CampId) { Year = year });
 
         await _handler.HandleAsync(context);
         return context.HasSucceeded;

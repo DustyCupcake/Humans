@@ -38,6 +38,12 @@ public interface IIssueTriage : IApplicationService
     Task<IssueDetail?> GetIssueByIdAsync(Guid id, IssueViewer viewer, CancellationToken ct = default);
 
     /// <summary>
+    /// The issue's screenshot, or <c>null</c> when the issue is missing, out of the viewer's reach
+    /// (the same test as <see cref="GetIssueByIdAsync"/>), has no screenshot, or its file is gone.
+    /// </summary>
+    Task<IssueScreenshot?> GetScreenshotAsync(Guid id, IssueViewer viewer, CancellationToken ct = default);
+
+    /// <summary>
     /// Throws <see cref="InvalidOperationException"/> when the issue is gone or
     /// <paramref name="viewer"/> may not see it — again indistinguishable.
     /// </summary>
@@ -75,26 +81,27 @@ public interface IIssueTriage : IApplicationService
     /// Posts a comment. Reporter status is derived from <paramref name="senderUserId"/> —
     /// a reporter's comment on a terminal issue auto-reopens it, whichever door it came
     /// through. Open to a handler or the reporter; <paramref name="resolveOnPost"/> is
-    /// honoured for handlers only. Throws <see cref="InvalidOperationException"/> when the
-    /// issue is gone or out of the viewer's reach.
+    /// honoured for handlers only. A missing result covers both a gone issue and one outside
+    /// the viewer's reach. Unexpected comment-write failures propagate; a failed resolution
+    /// returns no comment and preserves the missing classification.
     /// </summary>
-    Task<IssueCommentInfo> PostCommentAsync(
+    Task<IssueCommentResult> PostCommentAsync(
         Guid issueId, IssueViewer viewer, Guid? senderUserId, string content,
         bool resolveOnPost = false, CancellationToken ct = default);
 
-    Task UpdateStatusAsync(
+    Task<IssueMutationResult> UpdateStatusAsync(
         Guid issueId, IssueViewer viewer, IssueStatus newStatus, Guid? actorUserId,
         CancellationToken ct = default);
 
-    Task UpdateAssigneeAsync(
+    Task<IssueMutationResult> UpdateAssigneeAsync(
         Guid issueId, IssueViewer viewer, Guid? newAssigneeUserId, Guid? actorUserId,
         CancellationToken ct = default);
 
-    Task UpdateSectionAsync(
+    Task<IssueMutationResult> UpdateSectionAsync(
         Guid issueId, IssueViewer viewer, string? newSection, Guid? actorUserId,
         CancellationToken ct = default);
 
-    Task SetGitHubIssueNumberAsync(
+    Task<IssueMutationResult> SetGitHubIssueNumberAsync(
         Guid issueId, IssueViewer viewer, int? githubIssueNumber, Guid? actorUserId,
         CancellationToken ct = default);
 }
@@ -144,3 +151,20 @@ public sealed record IssueListSnapshot(
     Guid? AssigneeUserId,
     string? AssigneeDisplayName,
     int? GitHubIssueNumber);
+
+/// <summary>A triage mutation outcome; dependency failures carry a safe message, not diagnostics.</summary>
+public sealed record IssueMutationResult(bool Succeeded, bool NotFound, string? ErrorMessage, bool Rejected = false,
+    string? ErrorKey = null, int? ErrorLimit = null)
+{
+    public static IssueMutationResult Success() => new(true, false, null);
+    public static IssueMutationResult Missing(string message) => new(false, true, message);
+    public static IssueMutationResult Refused(string message, string? errorKey = null, int? errorLimit = null) =>
+        new(false, false, message, true, errorKey, errorLimit);
+    public static IssueMutationResult Failed(string message) => new(false, false, message);
+}
+
+/// <summary>A posted comment, an explicit missing outcome, or no comment when resolution failed.</summary>
+public sealed record IssueCommentResult(IssueCommentInfo? Comment, bool NotFound = false);
+
+/// <summary>A stored screenshot's bytes and the content type validated at upload.</summary>
+public sealed record IssueScreenshot(byte[] Content, string ContentType);

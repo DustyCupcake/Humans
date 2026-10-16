@@ -55,7 +55,7 @@ internal sealed class ShiftsController(
         if (es is null) return View("NoActiveEvent");
 
         var isPrivileged = ShiftRoleChecks.IsPrivilegedSignupApprover(User) ||
-                           (await shiftMgmt.GetCoordinatorTeamIdsAsync(user.Id)).Count > 0;
+                           (await shiftMgmt.GetCoordinatorTeamIdsAsync(user.Id, HttpContext.RequestAborted)).Count > 0;
 
         // Cached ShiftUserView, already event-scoped.
         var userView = await shiftView.GetUserAsync(user.Id, HttpContext.RequestAborted);
@@ -282,15 +282,15 @@ internal sealed class ShiftsController(
             return currentUserNotFound;
         }
 
-        try
+        var result = await signupService.BailRangeAsync(signupBlockId, user.Id);
+        if (result.ErrorKey is { } errorKey)
         {
-            await signupService.BailRangeAsync(signupBlockId, user.Id);
-            SetSuccess(localizer["Shifts_BailRangeSuccess"].Value);
+            logger.LogWarning("Rejected shift range bail {SignupBlockId} for user {UserId}: {Reason}", signupBlockId, user.Id, errorKey);
+            SetError(localizer[errorKey].Value);
         }
-        catch (InvalidOperationException ex)
+        else
         {
-            logger.LogWarning("Failed to bail shift range {SignupBlockId} for user {UserId}: {Reason}", signupBlockId, user.Id, ex.Message);
-            SetError(ex.Message);
+            SetSuccess(localizer["Shifts_BailRangeSuccess"].Value);
         }
 
         return RedirectToAction(nameof(Mine));
@@ -467,7 +467,7 @@ internal sealed class ShiftsController(
     private async Task<IReadOnlyList<UserSignupConflictItem>> LoadUserActiveSignupsForUiAsync(Guid userId)
     {
         var ct = HttpContext.RequestAborted;
-        var active = (await signupService.GetByUserAsync(userId))
+        var active = (await signupService.GetByUserAsync(userId, ct: ct))
             .Where(s => s.Status is SignupStatus.Pending or SignupStatus.Confirmed)
             .Where(s => s.Shift?.Rota is not null)
             .ToList();

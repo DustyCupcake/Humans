@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Caching.Memory;
 using Humans.Base.Caching;
 using Humans.Base.Extensions;
+using Humans.Base.Helpers;
 
 namespace Humans.Auth.Services;
 
@@ -28,15 +29,23 @@ internal sealed class MagicLinkRateLimiter(IMemoryCache cache) : IMagicLinkRateL
     private static string TokenKey(string token) =>
         CacheKeys.MagicLinkUsed(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token))));
 
+    public Task<bool> TryReserveUserSendAsync(Guid userId, TimeSpan cooldown) =>
+        cache.TryReserveAsync(UserSendKey(userId), cooldown);
+
+    public void ReleaseUserSendReservation(Guid userId) => cache.Remove(UserSendKey(userId));
+
+    private static string UserSendKey(Guid userId) => $"magic_link_login:{userId:N}";
+
     public Task<bool> TryReserveSignupSendAsync(string email, TimeSpan cooldown)
     {
-        var cacheKey = CacheKeys.MagicLinkSignupRateLimit(email.ToUpperInvariant());
-        return cache.TryReserveAsync(cacheKey, cooldown);
+        return cache.TryReserveAsync(SignupSendKey(email), cooldown);
     }
 
     public void ReleaseSignupReservation(string email)
     {
-        var cacheKey = CacheKeys.MagicLinkSignupRateLimit(email.ToUpperInvariant());
-        cache.Remove(cacheKey);
+        cache.Remove(SignupSendKey(email));
     }
+
+    private static string SignupSendKey(string email) =>
+        CacheKeys.MagicLinkSignupRateLimit(EmailNormalization.CanonicalizeGmailAlias(email).ToUpperInvariant());
 }

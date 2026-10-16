@@ -167,6 +167,7 @@
   <data name="Login_SignInWithGoogle" xml:space="preserve">
     <value>Inicia la sessió amb Google</value>
   </data>
+  <data name="Login_SetupFailed" xml:space="preserve"><value>No hem pogut acabar de configurar el teu compte. Torna-ho a provar.</value></data>
   <data name="Login_SignInFailed" xml:space="preserve">
     <value>Error d'inici de sessió. Això pot passar si has trigat massa o si el teu navegador ha bloquejat les galetes. Si us plau, torna-ho a provar.</value>
   </data>
@@ -652,6 +653,9 @@
   </data>
   <data name="Nav_Rideshare" xml:space="preserve">
     <value>Compartir cotxe</value>
+  </data>
+  <data name="Nav_Budget" xml:space="preserve">
+    <value>Pressupost</value>
   </data>
   <data name="Validation_PhoneE164" xml:space="preserve">
     <value>{0} ha de començar amb + i codi de país (ex. +34 612 345 678)</value>
@@ -1303,4 +1307,9 @@
   <data name="Enum_SystemTeamType_Asociados" xml:space="preserve"><value>Asociados</value></data>
   <data name="Enum_SystemTeamType_Colaboradors" xml:space="preserve"><value>Colaboradores</value></data>
   <data name="Enum_SystemTeamType_BarrioLeads" xml:space="preserve"><value>Responsables de campament</value></data>
+  <data name="Application_MotivationLength" xml:space="preserve"><value>La motivació ha de tenir entre 50 i 2000 caràcters.</value></data>
+  <data name="Application_AdditionalInfoTooLong" xml:space="preserve"><value>La informació addicional no ha de superar els 1000 caràcters.</value></data>
+  <data name="Application_SignificantContributionTooLong" xml:space="preserve"><value>La contribució significativa no ha de superar els 2000 caràcters.</value></data>
+  <data name="Application_RoleUnderstandingTooLong" xml:space="preserve"><value>L’explicació del rol no ha de superar els 2000 caràcters.</value></data>
+  <data name="Document_LegalLabel" xml:space="preserve"><value>Legal</value></data>
 </root>

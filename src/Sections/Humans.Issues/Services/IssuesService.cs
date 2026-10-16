@@ -2,7 +2,6 @@ using Humans.Auth.Contracts;
 using System.Globalization;
 using System.Resources;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Hosting;
 using NodaTime;
 using Humans.Base.Caching;
 using Humans.Base.Extensions;
@@ -22,13 +21,13 @@ namespace Humans.Issues.Services;
 
 /// <summary>
 /// <see cref="IIssuesService"/> impl. Data via <see cref="IIssuesRepository"/>; cross-section reads via user/email/role services;
-/// audit after save (design-rules §7a); notifications and emails dispatched at the end.
+/// audit after save; notifications and emails dispatched at the end.
 /// </summary>
 internal sealed class IssuesService(
     IIssuesRepository repo,
     IUserServiceRead users,
     IUserEmailService userEmails,
-    IRoleAssignmentService roles,
+    IRoleAssignmentServiceRead roles,
     IEmailService email,
     IssuesEmails emailMessages,
     INotificationEmitter notifications,
@@ -38,7 +37,7 @@ internal sealed class IssuesService(
     IIssuesBadgeCacheInvalidator issuesBadge,
     IMemoryCache cache,
     IClock clock,
-    IHostEnvironment env,
+    IFileStorage fileStorage,
     ISectionCatalog sectionCatalog,
     IssueSectionRouting routing,
     ILogger<IssuesService> logger) : IIssuesService, IUserDataContributor
@@ -60,7 +59,7 @@ internal sealed class IssuesService(
 
     /// <summary>
     /// Issues are kept for 6 months after they enter a terminal state. After
-    /// that the row + comments + screenshot directory are removed by
+    /// that the row + comments + screenshot are removed by
     /// <c>CleanupIssuesJob</c>. Days, not months, so the cutoff is a simple
     /// <see cref="Duration"/>.
     /// </summary>
@@ -94,7 +93,7 @@ internal sealed class IssuesService(
 
         if (trimmed.Length > MaxSectionLength)
         {
-            throw new IssueRuleException(
+            throw new InvalidOperationException(
                 $"Section must be {MaxSectionLength} characters or fewer.");
         }
 
@@ -168,21 +167,34 @@ internal sealed class IssuesService(
                 _ => throw new InvalidOperationException($"Unexpected content type: {screenshot.ContentType}")
             };
 
-            var fileName = $"{Guid.NewGuid()}{ext}";
-            var relativePath = Path.Combine("uploads", "issues", issueId.ToString(), fileName);
-            var absolutePath = Path.Combine(env.ContentRootPath, "wwwroot", relativePath);
-
-            Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
-
-            await using var stream = new FileStream(absolutePath, FileMode.Create);
-            await screenshot.CopyToAsync(stream, ct);
+            var key = $"uploads/issues/{issueId}/{Guid.NewGuid()}{ext}";
+            await using (var stream = screenshot.OpenReadStream())
+            {
+                await fileStorage.SaveAsync(key, stream, ct);
+            }
 
             issue.ScreenshotFileName = screenshot.FileName;
-            issue.ScreenshotStoragePath = relativePath.Replace('\\', '/');
+            issue.ScreenshotStoragePath = key;
             issue.ScreenshotContentType = screenshot.ContentType;
         }
 
-        await repo.AddIssueAsync(issue, ct);
+        try
+        {
+            await repo.AddIssueAsync(issue, ct);
+        }
+        catch when (issue.ScreenshotStoragePath is not null)
+        {
+            try
+            {
+                // A failed submission owns no row that could later erase this upload.
+                await fileStorage.DeleteAsync(issue.ScreenshotStoragePath, CancellationToken.None);
+            }
+            catch (Exception cleanupError)
+            {
+                logger.LogWarning(cleanupError, "Failed to remove screenshot for unpersisted issue {IssueId}", issueId);
+            }
+            throw;
+        }
         navBadge.Invalidate();
         issuesBadge.InvalidateMany(
             await ResolveBadgeUserIdsAsync(reporterUserId, section, null, ct));
@@ -220,6 +232,16 @@ internal sealed class IssuesService(
         return issue is null || !CanSee(issue, viewer) ? null : MapDetail(issue);
     }
 
+    public async Task<IssueScreenshot?> GetScreenshotAsync(Guid id, IssueViewer viewer, CancellationToken ct = default)
+    {
+        var issue = await repo.GetByIdAsync(id, ct);
+        if (issue is null || !CanSee(issue, viewer) || issue.ScreenshotStoragePath is not { } key)
+            return null;
+
+        var content = await fileStorage.TryReadAsync(key, ct);
+        return content is null ? null : new IssueScreenshot(content, issue.ScreenshotContentType ?? "application/octet-stream");
+    }
+
     /// <summary>
     /// Whether <paramref name="viewer"/> may handle the issue: mutate it, or comment on it as
     /// someone other than its reporter.
@@ -239,12 +261,12 @@ internal sealed class IssuesService(
     /// handler. Out of reach and gone are the same answer, so an id cannot be used to probe
     /// for issues the caller's queue would never list.
     /// </summary>
-    private async Task<Issue> FindHandleableAsync(Guid issueId, IssueViewer viewer, CancellationToken ct)
+    private async Task<Issue?> FindHandleableAsync(Guid issueId, IssueViewer viewer, CancellationToken ct)
     {
         var issue = await repo.FindForMutationAsync(issueId, ct);
         return issue is not null && CanHandle(issue, viewer)
             ? issue
-            : throw new IssueNotFoundException($"Issue {issueId} not found");
+            : null;
     }
 
     private static IssueDetail MapDetail(Issue issue) => new(
@@ -390,7 +412,7 @@ internal sealed class IssuesService(
 
     // ─── Mutations ───
 
-    public async Task<IssueCommentInfo> PostCommentAsync(
+    public async Task<IssueCommentResult> PostCommentAsync(
         Guid issueId,
         IssueViewer viewer,
         Guid? senderUserId,
@@ -400,7 +422,10 @@ internal sealed class IssuesService(
     {
         var issue = await repo.FindForMutationAsync(issueId, ct);
         if (issue is null || !CanSee(issue, viewer))
-            throw new InvalidOperationException($"Issue {issueId} not found");
+        {
+            logger.LogWarning("Issue {IssueId} not found during PostComment", issueId);
+            return new IssueCommentResult(null, NotFound: true);
+        }
 
         // A reporter may comment on their own issue but not resolve it; resolving is a
         // handler's move, so the flag is dropped rather than refused.
@@ -451,10 +476,12 @@ internal sealed class IssuesService(
 
         if (resolveOnPost && viewerCanHandle && !issue.Status.IsTerminal())
         {
-            await UpdateStatusAsync(issueId, viewer, IssueStatus.Resolved, senderUserId, ct);
+            var resolution = await UpdateStatusAsync(issueId, viewer, IssueStatus.Resolved, senderUserId, ct);
+            if (!resolution.Succeeded)
+                return new IssueCommentResult(null, resolution.NotFound);
         }
 
-        return new IssueCommentInfo(comment.Id, comment.Content, comment.CreatedAt);
+        return new IssueCommentResult(new IssueCommentInfo(comment.Id, comment.Content, comment.CreatedAt));
     }
 
     public async Task<Guid> CreateIssueAsync(
@@ -484,240 +511,188 @@ internal sealed class IssuesService(
         return issue.Id;
     }
 
-    public async Task UpdateStatusAsync(
+    public Task<IssueMutationResult> UpdateStatusAsync(
         Guid issueId, IssueViewer viewer, IssueStatus newStatus, Guid? actorUserId,
         CancellationToken ct = default)
     {
-        var issue = await FindHandleableAsync(issueId, viewer, ct);
-        if (!Enum.IsDefined(newStatus))
-            throw new ArgumentOutOfRangeException(nameof(newStatus), newStatus, "Unknown issue status.");
-
-        var oldStatus = issue.Status;
-        if (oldStatus == newStatus) return;
-
-        var now = clock.GetCurrentInstant();
-        issue.Status = newStatus;
-        issue.UpdatedAt = now;
-
-        if (newStatus.IsTerminal())
+        return MutateAsync(issueId, viewer, "UpdateStatus", "Failed to update status.", async issue =>
         {
-            issue.ResolvedAt = now;
-            issue.ResolvedByUserId = actorUserId;
-        }
-        else if (oldStatus.IsTerminal())
-        {
-            issue.ResolvedAt = null;
-            issue.ResolvedByUserId = null;
-        }
+            if (!Enum.IsDefined(newStatus))
+            {
+                logger.LogWarning("Issue {IssueId} status update rejected: undefined status {Status}", issueId, newStatus);
+                return IssueMutationResult.Refused("Unknown issue status.");
+            }
 
-        await repo.SaveTrackedIssueAsync(issue, ct);
-        await LogAuditAsync(
-            AuditAction.IssueStatusChanged, issueId, actorUserId,
-            $"status: {oldStatus} → {newStatus}");
-        await DispatchStatusChangedNotificationAsync(issue, oldStatus, newStatus, actorUserId, ct);
+            var oldStatus = issue.Status;
+            if (oldStatus == newStatus) return IssueMutationResult.Success();
 
-        // Once the issue is terminal there is nothing left to act on, so clear the
-        // "New issue filed" alerts that fanned out to admins + section role-holders.
-        if (newStatus.IsTerminal())
-            await ResolveSubmittedNotificationsAsync(issue, actorUserId, ct);
+            var now = clock.GetCurrentInstant();
+            issue.Status = newStatus;
+            issue.UpdatedAt = now;
 
-        navBadge.Invalidate();
-        issuesBadge.InvalidateMany(
-            await ResolveBadgeUserIdsAsync(issue.ReporterUserId, issue.Section, null, ct));
-    }
+            if (newStatus.IsTerminal())
+            {
+                issue.ResolvedAt = now;
+                issue.ResolvedByUserId = actorUserId;
+            }
+            else if (oldStatus.IsTerminal())
+            {
+                issue.ResolvedAt = null;
+                issue.ResolvedByUserId = null;
+            }
 
-    public async Task<IssueMutationResult> UpdateStatusWithResultAsync(
-        Guid issueId,
-        IssueViewer viewer,
-        IssueStatus newStatus,
-        Guid? actorUserId,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            await UpdateStatusAsync(issueId, viewer, newStatus, actorUserId, ct);
+            await repo.SaveTrackedIssueAsync(issue, ct);
+            await LogAuditAsync(
+                AuditAction.IssueStatusChanged, issueId, actorUserId,
+                $"status: {oldStatus} → {newStatus}");
+            await DispatchStatusChangedNotificationAsync(issue, oldStatus, newStatus, actorUserId, ct);
+
+            // Once the issue is terminal there is nothing left to act on, so clear the
+            // "New issue filed" alerts that fanned out to admins + section role-holders.
+            if (newStatus.IsTerminal())
+                await ResolveSubmittedNotificationsAsync(issue, actorUserId, ct);
+
+            navBadge.Invalidate();
+            issuesBadge.InvalidateMany(
+                await ResolveBadgeUserIdsAsync(issue.ReporterUserId, issue.Section, null, ct));
+
             return IssueMutationResult.Success();
-        }
-        catch (IssueNotFoundException)
-        {
-            logger.LogWarning("Issue {IssueId} not found during UpdateStatus", issueId);
-            return IssueMutationResult.Missing("Issue not found.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to update issue {IssueId} status", issueId);
-            return IssueMutationResult.Failed("Failed to update status.");
-        }
+        }, ct);
     }
 
-    public async Task UpdateAssigneeAsync(
+    public Task<IssueMutationResult> UpdateAssigneeAsync(
         Guid issueId, IssueViewer viewer, Guid? newAssigneeUserId, Guid? actorUserId,
         CancellationToken ct = default)
     {
-        var issue = await FindHandleableAsync(issueId, viewer, ct);
-
-        if (issue.AssigneeUserId == newAssigneeUserId) return;
-
-        var oldAssigneeId = issue.AssigneeUserId;
-        var idsToResolve = new List<Guid>(2);
-        if (oldAssigneeId.HasValue) idsToResolve.Add(oldAssigneeId.Value);
-        if (newAssigneeUserId.HasValue) idsToResolve.Add(newAssigneeUserId.Value);
-
-        var users1 = idsToResolve.Count == 0
-            ? null
-            : await users.GetUserInfosAsync(idsToResolve, ct);
-
-        var oldName = oldAssigneeId.HasValue
-            ? (users1!.TryGetValue(oldAssigneeId.Value, out var ou) ? ou.BurnerName : oldAssigneeId.Value.ToString())
-            : "Unassigned";
-        var newName = newAssigneeUserId.HasValue
-            ? (users1!.TryGetValue(newAssigneeUserId.Value, out var nu) ? nu.BurnerName : newAssigneeUserId.Value.ToString())
-            : "Unassigned";
-
-        // Store the resolved id: a merged-away assignee id would point the issue at a tombstone.
-        if (newAssigneeUserId is { } requested && users1!.TryGetValue(requested, out var resolved))
-            newAssigneeUserId = resolved.Id;
-        if (issue.AssigneeUserId == newAssigneeUserId) return;
-
-        issue.AssigneeUserId = newAssigneeUserId;
-        issue.UpdatedAt = clock.GetCurrentInstant();
-        await repo.SaveTrackedIssueAsync(issue, ct);
-
-        await LogAuditAsync(
-            AuditAction.IssueAssigneeChanged, issueId, actorUserId,
-            $"assignee: {oldName} → {newName}");
-
-        if (newAssigneeUserId.HasValue)
+        return MutateAsync(issueId, viewer, "UpdateAssignee", "Failed to update assignee.", async issue =>
         {
-            await DispatchAssignedNotificationAsync(issue, newAssigneeUserId.Value, actorUserId, ct);
-        }
-    }
+            if (issue.AssigneeUserId == newAssigneeUserId) return IssueMutationResult.Success();
 
-    public async Task<IssueMutationResult> UpdateAssigneeWithResultAsync(
-        Guid issueId,
-        IssueViewer viewer,
-        Guid? newAssigneeUserId,
-        Guid? actorUserId,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            await UpdateAssigneeAsync(issueId, viewer, newAssigneeUserId, actorUserId, ct);
+            var oldAssigneeId = issue.AssigneeUserId;
+            var idsToResolve = new List<Guid>(2);
+            if (oldAssigneeId.HasValue) idsToResolve.Add(oldAssigneeId.Value);
+            if (newAssigneeUserId.HasValue) idsToResolve.Add(newAssigneeUserId.Value);
+
+            var users1 = idsToResolve.Count == 0
+                ? null
+                : await users.GetUserInfosAsync(idsToResolve, ct);
+
+            var oldName = oldAssigneeId.HasValue
+                ? (users1!.TryGetValue(oldAssigneeId.Value, out var ou) ? ou.BurnerName : oldAssigneeId.Value.ToString())
+                : "Unassigned";
+            var newName = newAssigneeUserId.HasValue
+                ? (users1!.TryGetValue(newAssigneeUserId.Value, out var nu) ? nu.BurnerName : newAssigneeUserId.Value.ToString())
+                : "Unassigned";
+
+            // Store the resolved id: a merged-away assignee id would point the issue at a tombstone.
+            if (newAssigneeUserId is { } requested && users1!.TryGetValue(requested, out var resolved))
+                newAssigneeUserId = resolved.Id;
+            if (issue.AssigneeUserId == newAssigneeUserId) return IssueMutationResult.Success();
+
+            issue.AssigneeUserId = newAssigneeUserId;
+            issue.UpdatedAt = clock.GetCurrentInstant();
+            await repo.SaveTrackedIssueAsync(issue, ct);
+
+            await LogAuditAsync(
+                AuditAction.IssueAssigneeChanged, issueId, actorUserId,
+                $"assignee: {oldName} → {newName}");
+
+            if (newAssigneeUserId.HasValue)
+            {
+                await DispatchAssignedNotificationAsync(issue, newAssigneeUserId.Value, actorUserId, ct);
+            }
+
             return IssueMutationResult.Success();
-        }
-        catch (IssueNotFoundException)
-        {
-            logger.LogWarning("Issue {IssueId} not found during UpdateAssignee", issueId);
-            return IssueMutationResult.Missing("Issue not found.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to update assignee on issue {IssueId}", issueId);
-            return IssueMutationResult.Failed("Failed to update assignee.");
-        }
+        }, ct);
     }
 
-    public async Task UpdateSectionAsync(
+    public Task<IssueMutationResult> UpdateSectionAsync(
         Guid issueId, IssueViewer viewer, string? newSection, Guid? actorUserId,
         CancellationToken ct = default)
     {
-        newSection = NormalizeSection(newSection);
-
         // Authorized against the section the issue is in, not the one it is going to — the
         // same test the browser applies, where a handler routes an issue out of their queue.
-        var issue = await FindHandleableAsync(issueId, viewer, ct);
-
-        if (string.Equals(issue.Section, newSection, StringComparison.Ordinal)) return;
-
-        if (issue.Status.IsTerminal())
+        return MutateAsync(issueId, viewer, "UpdateSection", "Failed to update section.", async issue =>
         {
-            throw new IssueRuleException(
-                $"Cannot change section on a terminal issue (status: {issue.Status}).");
-        }
+            if (newSection?.Trim().Length > MaxSectionLength)
+            {
+                logger.LogWarning("Issue {IssueId} section update rejected: section exceeds {MaxLength} characters", issueId, MaxSectionLength);
+                return IssueMutationResult.Refused($"Section must be {MaxSectionLength} characters or fewer.",
+                    "Issue_Section_TooLong", MaxSectionLength);
+            }
+            newSection = NormalizeSection(newSection);
 
-        var previousSection = issue.Section;
-        var oldSection = previousSection ?? "(unknown)";
-        var nextSection = newSection ?? "(unknown)";
+            if (string.Equals(issue.Section, newSection, StringComparison.Ordinal)) return IssueMutationResult.Success();
 
-        issue.Section = newSection;
-        issue.UpdatedAt = clock.GetCurrentInstant();
-        await repo.SaveTrackedIssueAsync(issue, ct);
+            if (issue.Status.IsTerminal())
+            {
+                var reason = $"Cannot change section on a terminal issue (status: {issue.Status}).";
+                logger.LogWarning("Issue {IssueId} UpdateSection rejected: {Reason}", issueId, reason);
+                return IssueMutationResult.Refused(reason, "Issue_Section_Terminal");
+            }
 
-        await LogAuditAsync(
-            AuditAction.IssueSectionChanged, issueId, actorUserId,
-            $"section: {oldSection} → {nextSection}");
-        navBadge.Invalidate();
-        issuesBadge.InvalidateMany(
-            await ResolveBadgeUserIdsAsync(issue.ReporterUserId, newSection, previousSection, ct));
-    }
+            var previousSection = issue.Section;
+            var oldSection = previousSection ?? "(unknown)";
+            var nextSection = newSection ?? "(unknown)";
 
-    public async Task<IssueMutationResult> UpdateSectionWithResultAsync(
-        Guid issueId,
-        IssueViewer viewer,
-        string? newSection,
-        Guid? actorUserId,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            await UpdateSectionAsync(issueId, viewer, newSection, actorUserId, ct);
+            issue.Section = newSection;
+            issue.UpdatedAt = clock.GetCurrentInstant();
+            await repo.SaveTrackedIssueAsync(issue, ct);
+
+            await LogAuditAsync(
+                AuditAction.IssueSectionChanged, issueId, actorUserId,
+                $"section: {oldSection} → {nextSection}");
+            navBadge.Invalidate();
+            issuesBadge.InvalidateMany(
+                await ResolveBadgeUserIdsAsync(issue.ReporterUserId, newSection, previousSection, ct));
+
             return IssueMutationResult.Success();
-        }
-        catch (IssueNotFoundException)
-        {
-            logger.LogWarning("Issue {IssueId} not found during UpdateSection", issueId);
-            return IssueMutationResult.Missing("Issue not found.");
-        }
-        catch (IssueRuleException ex)
-        {
-            logger.LogWarning("Issue {IssueId} UpdateSection rejected: {Reason}", issueId, ex.Message);
-            return IssueMutationResult.Failed(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to update section on issue {IssueId}", issueId);
-            return IssueMutationResult.Failed("Failed to update section.");
-        }
+        }, ct);
     }
 
-    public async Task SetGitHubIssueNumberAsync(
+    public Task<IssueMutationResult> SetGitHubIssueNumberAsync(
         Guid issueId, IssueViewer viewer, int? githubIssueNumber, Guid? actorUserId,
         CancellationToken ct = default)
     {
-        var issue = await FindHandleableAsync(issueId, viewer, ct);
+        return MutateAsync(issueId, viewer, "SetGitHubIssueNumber", "Failed to link GitHub issue.", async issue =>
+        {
+            if (issue.GitHubIssueNumber == githubIssueNumber) return IssueMutationResult.Success();
 
-        if (issue.GitHubIssueNumber == githubIssueNumber) return;
+            issue.GitHubIssueNumber = githubIssueNumber;
+            issue.UpdatedAt = clock.GetCurrentInstant();
+            await repo.SaveTrackedIssueAsync(issue, ct);
 
-        issue.GitHubIssueNumber = githubIssueNumber;
-        issue.UpdatedAt = clock.GetCurrentInstant();
-        await repo.SaveTrackedIssueAsync(issue, ct);
+            await LogAuditAsync(
+                AuditAction.IssueGitHubLinked, issueId, actorUserId,
+                $"GitHub link: {(githubIssueNumber.HasValue ? githubIssueNumber.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "(cleared)")}");
 
-        await LogAuditAsync(
-            AuditAction.IssueGitHubLinked, issueId, actorUserId,
-            $"GitHub link: {(githubIssueNumber.HasValue ? githubIssueNumber.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "(cleared)")}");
+            return IssueMutationResult.Success();
+        }, ct);
     }
 
-    public async Task<IssueMutationResult> SetGitHubIssueNumberWithResultAsync(
-        Guid issueId,
-        IssueViewer viewer,
-        int? githubIssueNumber,
-        Guid? actorUserId,
-        CancellationToken ct = default)
+    /// <summary>
+    /// The one mutation pipeline: find the issue as a handler, apply the change, and turn a
+    /// failure into a result. Out of reach and gone both answer Missing.
+    /// </summary>
+    private async Task<IssueMutationResult> MutateAsync(
+        Guid issueId, IssueViewer viewer, string operation, string failure,
+        Func<Issue, Task<IssueMutationResult>> apply, CancellationToken ct)
     {
         try
         {
-            await SetGitHubIssueNumberAsync(issueId, viewer, githubIssueNumber, actorUserId, ct);
-            return IssueMutationResult.Success();
+            var issue = await FindHandleableAsync(issueId, viewer, ct);
+            if (issue is null)
+            {
+                logger.LogWarning("Issue {IssueId} not found during {Operation:l}", issueId, operation);
+                return IssueMutationResult.Missing("Issue not found.");
+            }
+
+            return await apply(issue);
         }
-        catch (IssueNotFoundException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning("Issue {IssueId} not found during SetGitHubIssue", issueId);
-            return IssueMutationResult.Missing("Issue not found.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to set GitHub issue for issue {IssueId}", issueId);
-            return IssueMutationResult.Failed("Failed to link GitHub issue.");
+            logger.LogError(ex, "Failed to apply {Operation:l} on issue {IssueId}", operation, issueId);
+            return IssueMutationResult.Failed(failure);
         }
     }
 
@@ -784,13 +759,9 @@ internal sealed class IssuesService(
         var expired = await repo.GetExpiredTerminalAsync(cutoff, ct);
         if (expired.Count == 0) return 0;
 
-        var deleted = await repo.DeleteByIdsAsync(expired, ct);
+        var (deleted, screenshotKeys) = await repo.DeleteByIdsAsync(expired, ct);
 
-        // Best-effort: delete each issue's wwwroot/uploads/issues/{id}/ dir. Failures logged; next sweep retries.
-        foreach (var issueId in expired)
-        {
-            DeleteScreenshotDirectory(issueId);
-        }
+        await DeleteScreenshotsAsync(screenshotKeys);
 
         logger.LogInformation(
             "PurgeExpiredAsync: deleted {Count} issues older than {Cutoff} (retention {Days}d)",
@@ -852,32 +823,29 @@ internal sealed class IssuesService(
             badgeUserIds.UnionWith(await ResolveBadgeUserIdsAsync(userId, section, previousSection: null, ct));
         }
 
-        var erasedIssueIds = await repo.EraseForUserAsync(userId, ct);
+        var screenshotKeys = await repo.EraseForUserAsync(userId, ct);
         issuesBadge.InvalidateMany(badgeUserIds);
 
         // The screenshots are the reporter's own uploads — they go with the rows.
-        foreach (var issueId in erasedIssueIds)
-        {
-            DeleteScreenshotDirectory(issueId);
-        }
+        await DeleteScreenshotsAsync(screenshotKeys);
     }
 
-    /// <summary>Best-effort removal of an issue's upload dir; failures are logged, never thrown.</summary>
-    private void DeleteScreenshotDirectory(Guid issueId)
+    /// <summary>
+    /// Best-effort removal of screenshots whose rows have already committed; failures are logged,
+    /// never thrown. Cancellation must not strand them, and a stranded blob must not abort the cascade.
+    /// </summary>
+    private async Task DeleteScreenshotsAsync(IReadOnlyList<string> keys)
     {
-        var issueDir = Path.Combine(
-            env.ContentRootPath, "wwwroot", "uploads", "issues", issueId.ToString());
-
-        try
+        foreach (var key in keys)
         {
-            if (Directory.Exists(issueDir))
-                Directory.Delete(issueDir, recursive: true);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex,
-                "Failed to delete screenshot directory {Dir} for issue {IssueId}",
-                issueDir, issueId);
+            try
+            {
+                await fileStorage.DeleteAsync(key, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to delete issue screenshot {Key}", key);
+            }
         }
     }
 
@@ -904,14 +872,9 @@ internal sealed class IssuesService(
 
         if (senderIsReporter)
         {
-            // Reporter commented → notify section role-holders + assignee.
-            foreach (var role in routing.RolesFor(issue.Section))
-            {
-                foreach (var id in await roles.GetActiveUserIdsInRoleAsync(role, ct))
-                {
-                    if (id != comment.SenderUserId) recipients.Add(id);
-                }
-            }
+            // Reporter commented → notify the queue's handlers + assignee.
+            recipients.UnionWith(await QueueHandlerIdsAsync(issue.Section, ct));
+            if (comment.SenderUserId is { } senderId) recipients.Remove(senderId);
             if (issue.AssigneeUserId is { } aid && aid != comment.SenderUserId)
                 recipients.Add(aid);
         }
@@ -1009,23 +972,24 @@ internal sealed class IssuesService(
         }
     }
 
+    /// <summary>
+    /// Whoever handles the queue: its owning roles' holders, or Admins when no role owns it.
+    /// </summary>
+    private async Task<HashSet<Guid>> QueueHandlerIdsAsync(string? section, CancellationToken ct)
+    {
+        var queueRoles = routing.RolesFor(section);
+        IEnumerable<string> notified = queueRoles.Count > 0 ? queueRoles : [RoleNames.Admin];
+        var ids = new HashSet<Guid>();
+        foreach (var role in notified)
+            ids.UnionWith(await roles.GetActiveUserIdsInRoleAsync(role, ct));
+        return ids;
+    }
+
     private async Task DispatchSubmittedNotificationAsync(Issue issue, CancellationToken ct)
     {
-        // Fan out to Admins + section role-holders (US-28.4); exclude self-filer.
-        var recipients = new HashSet<Guid>();
-
-        foreach (var id in await roles.GetActiveUserIdsInRoleAsync(RoleNames.Admin, ct))
-        {
-            if (id != issue.ReporterUserId) recipients.Add(id);
-        }
-
-        foreach (var role in routing.RolesFor(issue.Section))
-        {
-            foreach (var id in await roles.GetActiveUserIdsInRoleAsync(role, ct))
-            {
-                if (id != issue.ReporterUserId) recipients.Add(id);
-            }
-        }
+        // Fan out to the queue's handlers; exclude self-filer.
+        var recipients = await QueueHandlerIdsAsync(issue.Section, ct);
+        recipients.Remove(issue.ReporterUserId);
 
         if (recipients.Count == 0) return;
 
@@ -1084,7 +1048,6 @@ internal sealed class IssuesService(
     private async Task DispatchAssignedNotificationAsync(
         Issue issue, Guid newAssigneeUserId, Guid? actorUserId, CancellationToken ct)
     {
-        // Self-assign → no notification.
         if (newAssigneeUserId == actorUserId) return;
 
         try
@@ -1152,19 +1115,5 @@ internal sealed class IssuesService(
                 logger.LogError(ex, "Failed to dispatch {Source} issue notices for language {Language}", source, group.Key);
             }
         }
-    }
-
-    private sealed class IssueNotFoundException : InvalidOperationException
-    {
-        public IssueNotFoundException() { }
-        public IssueNotFoundException(string message) : base(message) { }
-        public IssueNotFoundException(string message, Exception innerException) : base(message, innerException) { }
-    }
-
-    private sealed class IssueRuleException : InvalidOperationException
-    {
-        public IssueRuleException() { }
-        public IssueRuleException(string message) : base(message) { }
-        public IssueRuleException(string message, Exception innerException) : base(message, innerException) { }
     }
 }

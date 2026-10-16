@@ -43,7 +43,8 @@ internal sealed class BudgetService(
                     group.SortOrder,
                     group.IsRestricted,
                     group.IsDepartmentGroup))
-                .ToList());
+                .ToList(),
+            year.VendorEventId);
 
     public async Task<BudgetYearDetail?> GetYearByIdAsync(Guid id)
     {
@@ -66,7 +67,8 @@ internal sealed class BudgetService(
             year.IsDeleted,
             year.Groups
                 .Select(ToGroupDetail)
-                .ToList());
+                .ToList(),
+            year.VendorEventId);
 
     private static BudgetGroupDetail ToGroupDetail(BudgetGroup group) =>
         new(
@@ -135,13 +137,7 @@ internal sealed class BudgetService(
     {
         var now = clock.GetCurrentInstant();
 
-        // Resolve budgetable teams via Teams service (§2c).
-        var teams = (await teamService.GetTeamsAsync()).Values
-            .Where(t => t.IsActive && t.HasBudget)
-            .OrderBy(t => t.Name, StringComparer.Ordinal);
-        var teamRefs = teams
-            .Select(t => new BudgetableTeamRef(t.Id, t.Name))
-            .ToList();
+        var teamRefs = await GetBudgetableTeamsAsync();
 
         var draft = new BudgetYearDraft(
             Id: Guid.NewGuid(),
@@ -179,11 +175,12 @@ internal sealed class BudgetService(
             yearId, status);
     }
 
-    public async Task UpdateYearAsync(Guid yearId, string year, string name, Guid actorUserId)
+    public async Task UpdateYearAsync(Guid yearId, string year, string name, string? vendorEventId, Guid actorUserId)
     {
         var now = clock.GetCurrentInstant();
 
-        var ok = await repository.UpdateYearAsync(yearId, year, name, actorUserId, now);
+        var ok = await repository.UpdateYearAsync(
+            yearId, year, name, string.IsNullOrWhiteSpace(vendorEventId) ? null : vendorEventId.Trim(), actorUserId, now);
         if (!ok)
             throw new InvalidOperationException($"Budget year {yearId} not found");
     }
@@ -199,16 +196,19 @@ internal sealed class BudgetService(
         logger.LogInformation("Archived budget year {YearId}", yearId);
     }
 
+    // Resolve budgetable teams via Teams service (§2c).
+    private async Task<List<BudgetableTeamRef>> GetBudgetableTeamsAsync() =>
+        (await teamService.GetTeamsAsync()).Values
+            .Where(t => t.IsActive && t.HasBudget)
+            .OrderBy(t => t.Name, StringComparer.Ordinal)
+            .Select(t => new BudgetableTeamRef(t.Id, t.Name))
+            .ToList();
+
     public async Task<int> SyncDepartmentsAsync(Guid budgetYearId, Guid actorUserId)
     {
         var now = clock.GetCurrentInstant();
 
-        var teams = (await teamService.GetTeamsAsync()).Values
-            .Where(t => t.IsActive && t.HasBudget)
-            .OrderBy(t => t.Name, StringComparer.Ordinal);
-        var teamRefs = teams
-            .Select(t => new BudgetableTeamRef(t.Id, t.Name))
-            .ToList();
+        var teamRefs = await GetBudgetableTeamsAsync();
 
         var created = await repository.SyncDepartmentCategoriesAsync(
             budgetYearId, teamRefs, actorUserId, now);
@@ -788,10 +788,6 @@ internal sealed class BudgetService(
     public async Task<IReadOnlyList<TicketingWeekProjection>> GetTicketingProjectionEntriesAsync(
         Guid budgetGroupId, CancellationToken ct = default)
     {
-        var group = await repository.GetGroupByIdAsync(budgetGroupId, ct);
-        if (group is null || !group.IsTicketingGroup)
-            return [];
-
         var projection = await repository.GetTicketingProjectionAsync(budgetGroupId, ct);
         if (projection is null)
             return [];
@@ -852,15 +848,7 @@ internal sealed class BudgetService(
         // id list is the resolved record's: asked with an archived id, the survivor's own
         // rows are theirs too.
         var allIds = (await userService.GetUserInfoAsync(userId, ct))?.AllUserIds ?? [userId];
-        IReadOnlyList<BudgetAuditLog> entries;
-        if (allIds.Count == 1)
-        {
-            entries = await repository.GetAuditLogEntriesForUserAsync(allIds[0], ct);
-        }
-        else
-        {
-            entries = await repository.GetAuditLogEntriesForUserIdsAsync(allIds, ct);
-        }
+        var entries = await repository.GetAuditLogEntriesForUserIdsAsync(allIds, ct);
 
         var shaped = entries.Select(bal => new
         {

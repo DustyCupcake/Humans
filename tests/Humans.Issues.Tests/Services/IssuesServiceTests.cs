@@ -26,7 +26,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NodaTime;
@@ -58,6 +57,7 @@ public sealed class IssuesServiceTests
     private readonly FakeClock Clock = new(Instant.FromUtc(2026, 4, 29, 12, 0));
     private readonly IMemoryCache Cache = new MemoryCache(new MemoryCacheOptions());
     private readonly IAuditLogService AuditLog = Substitute.For<IAuditLogService>();
+    private readonly InMemoryFileStorage FileStorage = new();
 
     /// <summary>
     /// The published section list (nobodies-collective/Humans#1509). A substitute: the service
@@ -84,6 +84,7 @@ public sealed class IssuesServiceTests
     private readonly INavBadgeCacheInvalidator _navBadge;
     private readonly IIssuesBadgeCacheInvalidator _issuesBadge;
     private readonly IIssuesRepository _repository;
+    private readonly IFileStorage _fileStorage = Substitute.For<IFileStorage>();
     private readonly IssuesApplicationService _service;
     private readonly ILogger<IssuesApplicationService> _logger = Substitute.For<ILogger<IssuesApplicationService>>();
 
@@ -91,6 +92,12 @@ public sealed class IssuesServiceTests
 
     public IssuesServiceTests()
     {
+        _fileStorage.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>(), true).Returns(call =>
+        {
+            try { Directory.Delete(Path.Combine(Path.GetTempPath(), "wwwroot", call.ArgAt<string>(0)), recursive: true); }
+            catch (DirectoryNotFoundException) { }
+            return Task.CompletedTask;
+        });
         _emailService = Substitute.For<IEmailService>();
         _emailMessages = TestIssuesEmails.Create(culture => _renderedEmailCultures.Add(culture));
         AuditLog
@@ -99,8 +106,6 @@ public sealed class IssuesServiceTests
                 Arg.Any<IReadOnlyList<AuditAction>?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<AuditLogEntrySnapshot>>([]));
 
-        var env = Substitute.For<IHostEnvironment>();
-        env.ContentRootPath.Returns(Path.GetTempPath());
 
         _userService = NewRegistryBackedUserService();
 
@@ -134,7 +139,7 @@ public sealed class IssuesServiceTests
             _repository, _userService, _userEmailService, _roleService,
             _emailService, _emailMessages, _notificationService, _notificationInbox, AuditLog, _navBadge,
             _issuesBadge, Cache,
-            Clock, env, SectionCatalog, Domain.TestIssueQueues.Shipped(),
+            Clock, FileStorage, SectionCatalog, Domain.TestIssueQueues.Shipped(),
             _logger);
     }
 
@@ -185,8 +190,7 @@ public sealed class IssuesServiceTests
             UserName = $"test-{userId}@test.com",
             Email = $"test-{userId}@test.com",
             DisplayName = displayName,
-            // BurnerName mirrors CopyNamesToUser's dual-write from Profile onto User (#1097) —
-            // UserInfo.BurnerName reads User.BurnerName only (#1098).
+            // UserInfo.BurnerName reads User.BurnerName (dual-written from Profile by CopyNamesToUser), so set it here.
             BurnerName = displayName,
             PreferredLanguage = "en",
             CreatedAt = Clock.GetCurrentInstant()
@@ -214,7 +218,7 @@ public sealed class IssuesServiceTests
         var detail = await _service.GetIssueByIdAsync(issue.issueId, Admin, Xunit.TestContext.Current.CancellationToken);
         var mutations = Substitute.For<IIssuesService>();
         mutations.GetIssueByIdAsync(issue.issueId, Arg.Any<IssueViewer>(), Arg.Any<CancellationToken>()).Returns(detail);
-        mutations.UpdateSectionWithResultAsync(issue.issueId, Arg.Any<IssueViewer>(), "Teams", user.Id,
+        mutations.UpdateSectionAsync(issue.issueId, Arg.Any<IssueViewer>(), "Teams", user.Id,
             Arg.Any<CancellationToken>()).Returns(IssueMutationResult.Missing("Issue not found."));
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<object?>(),
@@ -379,8 +383,11 @@ public sealed class IssuesServiceTests
         stored.Status.Should().Be(IssueStatus.Triage);
     }
 
-    [HumansFact]
-    public async Task SubmitIssueAsync_notifies_admins_and_section_handlers_excluding_reporter()
+    [HumansTheory]
+    [InlineData("Tickets", false)]
+    [InlineData(null, true)]
+    public async Task SubmitIssueAsync_notifies_queue_handlers_with_admins_only_as_fallback(
+        string? section, bool expectAdmins)
     {
         var reporterId = Guid.NewGuid();
         var adminId = Guid.NewGuid();
@@ -409,13 +416,67 @@ public sealed class IssuesServiceTests
 
         await _service.SubmitIssueAsync(
             reporterId, IssueCategory.Bug, "Title", "Desc",
-            section: "Tickets",
+            section: section,
             pageUrl: "/Tickets", userAgent: null, additionalContext: null,
             screenshot: null, ct: Xunit.TestContext.Current.CancellationToken);
 
         capturedRecipients.Should().NotBeNull();
-        capturedRecipients.Should().BeEquivalentTo([adminId, ticketAdminId]);
+        capturedRecipients.Should().BeEquivalentTo(expectAdmins ? new[] { adminId } : new[] { ticketAdminId });
         capturedRecipients.Should().NotContain(reporterId);
+    }
+
+    [HumansTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SubmitIssueAsync_FailedPersistence_CleansScreenshotAndPreservesPrimaryError(bool cleanupFails)
+    {
+        var root = Directory.CreateTempSubdirectory("humans-issue-upload-");
+        try
+        {
+            _fileStorage.SaveAsync(Arg.Any<string>(), Arg.Any<Stream>(), Arg.Any<CancellationToken>()).Returns(async call =>
+            {
+                var path = Path.Combine(root.FullName, "wwwroot", call.ArgAt<string>(0));
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                await using var output = File.Create(path);
+                await call.ArgAt<Stream>(1).CopyToAsync(output);
+            });
+            var cleanupFailure = new IOException("Screenshot cleanup failed");
+            _fileStorage.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                if (cleanupFails) return Task.FromException(cleanupFailure);
+                File.Delete(Path.Combine(root.FullName, "wwwroot", call.ArgAt<string>(0)));
+                return Task.CompletedTask;
+            });
+            var repo = Substitute.For<IIssuesRepository>();
+            var failure = new IOException("Issue persistence failed");
+            repo.AddIssueAsync(Arg.Any<Issue>(), Arg.Any<CancellationToken>()).Returns(Task.FromException(failure));
+            var service = new IssuesApplicationService(
+                repo, _userService, _userEmailService, _roleService,
+                _emailService, _emailMessages, _notificationService, _notificationInbox, AuditLog, _navBadge,
+                _issuesBadge, Cache, Clock, _fileStorage, SectionCatalog, Domain.TestIssueQueues.Shipped(), _logger);
+            using var content = new MemoryStream([1, 2, 3]);
+            var screenshot = new FormFile(content, 0, content.Length, "Screenshot", "shot.png")
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = "image/png"
+            };
+
+            var act = () => service.SubmitIssueAsync(Guid.NewGuid(), IssueCategory.Bug, "Title", "Detail",
+                null, null, null, null, screenshot, ct: Xunit.TestContext.Current.CancellationToken);
+
+            (await act.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+            var remaining = Directory.GetFiles(root.FullName, "*.png", SearchOption.AllDirectories);
+            if (cleanupFails)
+            {
+                remaining.Should().ContainSingle();
+                _logger.ReceivedCalls().Should().Contain(call => call.GetMethodInfo().Name == "Log"
+                    && call.GetArguments()[0]!.Equals(LogLevel.Warning)
+                    && ReferenceEquals(call.GetArguments()[3], cleanupFailure));
+            }
+            else remaining.Should().BeEmpty();
+            await _fileStorage.Received(1).DeleteAsync(Arg.Any<string>(), CancellationToken.None);
+        }
+        finally { root.Delete(recursive: true); }
     }
 
     [HumansFact]
@@ -500,6 +561,25 @@ public sealed class IssuesServiceTests
 
         var stored = await _issuesDb.Issues.AsNoTracking().FirstAsync(i => i.Id == issueId, Xunit.TestContext.Current.CancellationToken);
         stored.Status.Should().Be(IssueStatus.Open);
+        _issuesBadge.Received(1).InvalidateMany(
+            Arg.Is<IReadOnlySet<Guid>>(ids => ids.Contains(reporterId)));
+    }
+
+    [HumansFact]
+    public async Task PostCommentAsync_reporter_reopen_is_audited_as_the_reporter()
+    {
+        var (reporterId, issueId) = await SeedIssueAsync(IssueStatus.Resolved);
+
+        await _service.PostCommentAsync(issueId, Admin, reporterId, "Still broken", ct: Xunit.TestContext.Current.CancellationToken);
+
+        await AuditLog.Received(1).LogAsync(
+            AuditAction.IssueStatusChanged,
+            nameof(Issue),
+            issueId,
+            Arg.Any<string>(),
+            reporterId,
+            Arg.Any<Guid?>(),
+            Arg.Any<string?>());
     }
 
     [HumansFact]
@@ -711,6 +791,39 @@ public sealed class IssuesServiceTests
             Arg.Any<CancellationToken>());
     }
 
+    [HumansTheory]
+    [InlineData("Tickets", false)]
+    [InlineData(null, true)]
+    public async Task PostCommentAsync_reporter_notifies_queue_handlers_with_admins_only_as_fallback(
+        string? section, bool expectAdmins)
+    {
+        var (reporterId, issueId) = await SeedIssueAsync(IssueStatus.Open, section: section);
+        var adminId = Guid.NewGuid();
+        var ticketAdminId = Guid.NewGuid();
+        _roleService
+            .GetActiveUserIdsInRoleAsync(RoleNames.Admin, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Guid>>([adminId]));
+        _roleService
+            .GetActiveUserIdsInRoleAsync(RoleNames.TicketAdmin, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Guid>>([ticketAdminId]));
+
+        IReadOnlyList<Guid>? capturedRecipients = null;
+        await _notificationService
+            .SendAsync(
+                NotificationSource.IssueComment,
+                Arg.Any<NotificationClass>(),
+                Arg.Any<NotificationPriority>(),
+                Arg.Any<string>(),
+                Arg.Do<IReadOnlyList<Guid>>(r => capturedRecipients = r),
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>());
+
+        await _service.PostCommentAsync(issueId, Admin, reporterId, "More info", ct: Xunit.TestContext.Current.CancellationToken);
+
+        capturedRecipients.Should().BeEquivalentTo(expectAdmins ? new[] { adminId } : new[] { ticketAdminId });
+    }
+
     [HumansFact]
     public async Task PostCommentAsync_reporter_does_not_email_self()
     {
@@ -762,9 +875,10 @@ public sealed class IssuesServiceTests
     {
         var ct = Xunit.TestContext.Current.CancellationToken;
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open);
-        var act = () => _service.UpdateStatusAsync(issueId, Admin, (IssueStatus)status, Admin.UserId, ct);
+        var result = await _service.UpdateStatusAsync(issueId, Admin, (IssueStatus)status, Admin.UserId, ct);
 
-        await act.Should().ThrowAsync<ArgumentOutOfRangeException>().WithMessage("Unknown issue status.*");
+        result.Rejected.Should().BeTrue();
+        result.ErrorMessage.Should().Be("Unknown issue status.");
         (await _issuesDb.Issues.AsNoTracking().SingleAsync(ct)).Status.Should().Be(IssueStatus.Open);
         AuditLog.ReceivedCalls().Should().BeEmpty();
         _notificationService.ReceivedCalls().Should().BeEmpty();
@@ -776,7 +890,7 @@ public sealed class IssuesServiceTests
     [HumansFact]
     public async Task UpdateStatusAsync_to_terminal_sets_ResolvedAt_and_ResolvedByUserId()
     {
-        var (_, issueId) = await SeedIssueAsync(IssueStatus.Open);
+        var (reporterId, issueId) = await SeedIssueAsync(IssueStatus.Open);
         var actorId = Guid.NewGuid();
 
         await _service.UpdateStatusAsync(issueId, Admin, IssueStatus.Resolved, actorId, Xunit.TestContext.Current.CancellationToken);
@@ -785,6 +899,8 @@ public sealed class IssuesServiceTests
         stored.Status.Should().Be(IssueStatus.Resolved);
         stored.ResolvedAt.Should().NotBeNull();
         stored.ResolvedByUserId.Should().Be(actorId);
+        _issuesBadge.Received(1).InvalidateMany(
+            Arg.Is<IReadOnlySet<Guid>>(ids => ids.Contains(reporterId)));
     }
 
     [HumansFact]
@@ -930,24 +1046,23 @@ public sealed class IssuesServiceTests
         repo.FindForMutationAsync(issue.Id, Arg.Any<CancellationToken>()).Returns(_ => failDuringLookup
             ? Task.FromException<Issue?>(failure) : Task.FromResult<Issue?>(issue));
         repo.SaveTrackedIssueAsync(issue, Arg.Any<CancellationToken>()).Returns(Task.FromException(failure));
-        var env = Substitute.For<IHostEnvironment>();
-        env.ContentRootPath.Returns(Path.GetTempPath());
         var service = new IssuesApplicationService(
             repo, _userService, _userEmailService, _roleService,
             _emailService, _emailMessages, _notificationService, _notificationInbox, AuditLog, _navBadge,
-            _issuesBadge, Cache, Clock, env, SectionCatalog, Domain.TestIssueQueues.Shipped(), _logger);
+            _issuesBadge, Cache, Clock, FileStorage, SectionCatalog, Domain.TestIssueQueues.Shipped(), _logger);
         var ct = Xunit.TestContext.Current.CancellationToken;
 
         var result = field switch
         {
-            "Status" => await service.UpdateStatusWithResultAsync(issue.Id, Admin, IssueStatus.Resolved, Admin.UserId, ct),
-            "Assignee" => await service.UpdateAssigneeWithResultAsync(issue.Id, Admin, Guid.NewGuid(), Admin.UserId, ct),
-            "Section" => await service.UpdateSectionWithResultAsync(issue.Id, Admin, "Teams", Admin.UserId, ct),
-            _ => await service.SetGitHubIssueNumberWithResultAsync(issue.Id, Admin, 1234, Admin.UserId, ct),
+            "Status" => await service.UpdateStatusAsync(issue.Id, Admin, IssueStatus.Resolved, Admin.UserId, ct),
+            "Assignee" => await service.UpdateAssigneeAsync(issue.Id, Admin, Guid.NewGuid(), Admin.UserId, ct),
+            "Section" => await service.UpdateSectionAsync(issue.Id, Admin, "Teams", Admin.UserId, ct),
+            _ => await service.SetGitHubIssueNumberAsync(issue.Id, Admin, 1234, Admin.UserId, ct),
         };
 
         result.Succeeded.Should().BeFalse();
         result.NotFound.Should().BeFalse();
+        result.Rejected.Should().BeFalse();
         result.ErrorMessage.Should().NotContain(failure.Message);
         _logger.ReceivedCalls().Should().ContainSingle(call =>
             call.GetMethodInfo().Name == "Log" &&
@@ -955,13 +1070,24 @@ public sealed class IssuesServiceTests
             ReferenceEquals(call.GetArguments()[3], failure));
     }
 
+    [HumansFact]
+    public async Task Mutation_cancellation_propagates_instead_of_becoming_a_failure_result()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        var act = () => _service.UpdateStatusAsync(Guid.NewGuid(), Admin, IssueStatus.Resolved,
+            Admin.UserId, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     [HumansTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task UpdateSectionWithResultAsync_MasksMissingAndInaccessibleIssues(bool inaccessible)
+    public async Task UpdateSectionAsync_MasksMissingAndInaccessibleIssues(bool inaccessible)
     {
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open, section: "Tickets");
-        var result = await _service.UpdateSectionWithResultAsync(
+        var result = await _service.UpdateSectionAsync(
             inaccessible ? issueId : Guid.NewGuid(), new IssueViewer(Guid.NewGuid(), []), "Teams", Guid.NewGuid(),
             Xunit.TestContext.Current.CancellationToken);
 
@@ -971,12 +1097,12 @@ public sealed class IssuesServiceTests
     }
 
     [HumansFact]
-    public async Task UpdateStatusWithResultAsync_returns_success_when_status_updates()
+    public async Task UpdateStatusAsync_returns_success_when_status_updates()
     {
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open);
         var actorId = Guid.NewGuid();
 
-        var result = await _service.UpdateStatusWithResultAsync(issueId, Admin, IssueStatus.Resolved, actorId, Xunit.TestContext.Current.CancellationToken);
+        var result = await _service.UpdateStatusAsync(issueId, Admin, IssueStatus.Resolved, actorId, Xunit.TestContext.Current.CancellationToken);
 
         result.Succeeded.Should().BeTrue();
         result.NotFound.Should().BeFalse();
@@ -986,10 +1112,21 @@ public sealed class IssuesServiceTests
         stored.ResolvedByUserId.Should().Be(actorId);
     }
 
-    [HumansFact]
-    public async Task UpdateStatusWithResultAsync_returns_not_found_when_issue_is_missing()
+    [HumansTheory]
+    [InlineData("Status")]
+    [InlineData("Assignee")]
+    [InlineData("Section")]
+    [InlineData("GitHub")]
+    public async Task Mutations_return_not_found_when_issue_is_missing(string field)
     {
-        var result = await _service.UpdateStatusWithResultAsync(Guid.NewGuid(), Admin, IssueStatus.Resolved, Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
+        var ct = Xunit.TestContext.Current.CancellationToken;
+        var result = field switch
+        {
+            "Status" => await _service.UpdateStatusAsync(Guid.NewGuid(), Admin, IssueStatus.Resolved, Guid.NewGuid(), ct),
+            "Assignee" => await _service.UpdateAssigneeAsync(Guid.NewGuid(), Admin, Guid.NewGuid(), Guid.NewGuid(), ct),
+            "Section" => await _service.UpdateSectionAsync(Guid.NewGuid(), Admin, "Teams", Guid.NewGuid(), ct),
+            _ => await _service.SetGitHubIssueNumberAsync(Guid.NewGuid(), Admin, 1234, Guid.NewGuid(), ct),
+        };
 
         result.Succeeded.Should().BeFalse();
         result.NotFound.Should().BeTrue();
@@ -1080,34 +1217,20 @@ public sealed class IssuesServiceTests
     }
 
     [HumansFact]
-    public async Task UpdateAssigneeWithResultAsync_returns_success_when_assignee_updates()
+    public async Task UpdateAssigneeAsync_returns_success_when_assignee_updates()
     {
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open);
         var assigneeId = Guid.NewGuid();
         SeedUser(assigneeId, "Assignee").Email = "assignee@x.com";
         await Db.SaveChangesAsync(Xunit.TestContext.Current.CancellationToken);
 
-        var result = await _service.UpdateAssigneeWithResultAsync(issueId, Admin, assigneeId, Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
+        var result = await _service.UpdateAssigneeAsync(issueId, Admin, assigneeId, Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
 
         result.Succeeded.Should().BeTrue();
         result.NotFound.Should().BeFalse();
 
         var stored = await _issuesDb.Issues.AsNoTracking().FirstAsync(i => i.Id == issueId, Xunit.TestContext.Current.CancellationToken);
         stored.AssigneeUserId.Should().Be(assigneeId);
-    }
-
-    [HumansFact]
-    public async Task UpdateAssigneeWithResultAsync_returns_not_found_when_issue_is_missing()
-    {
-        var result = await _service.UpdateAssigneeWithResultAsync(Guid.NewGuid(), Admin, Guid.NewGuid(), Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
-
-        result.Succeeded.Should().BeFalse();
-        result.NotFound.Should().BeTrue();
-        result.ErrorMessage.Should().NotBeNullOrWhiteSpace();
-        _logger.ReceivedCalls().Should().ContainSingle(call =>
-            call.GetMethodInfo().Name == "Log" &&
-            (LogLevel)call.GetArguments()[0]! == LogLevel.Warning &&
-            call.GetArguments()[3] == null);
     }
 
     // ==========================================================================
@@ -1120,6 +1243,10 @@ public sealed class IssuesServiceTests
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open, section: "Tickets");
         _navBadge.ClearReceivedCalls();
         var actorId = Guid.NewGuid();
+        var ticketAdminId = Guid.NewGuid();
+        var teamsAdminId = Guid.NewGuid();
+        _roleService.GetActiveUserIdsInRoleAsync(RoleNames.TicketAdmin, Arg.Any<CancellationToken>()).Returns([ticketAdminId]);
+        _roleService.GetActiveUserIdsInRoleAsync(RoleNames.TeamsAdmin, Arg.Any<CancellationToken>()).Returns([teamsAdminId]);
 
         await _service.UpdateSectionAsync(issueId, Admin, "Teams", actorId, Xunit.TestContext.Current.CancellationToken);
 
@@ -1127,6 +1254,9 @@ public sealed class IssuesServiceTests
         stored.Section.Should().Be("Teams");
 
         _navBadge.Received(1).Invalidate();
+        // Both queues' holders: the issue left one count and joined the other.
+        _issuesBadge.Received(1).InvalidateMany(
+            Arg.Is<IReadOnlySet<Guid>>(ids => ids.Contains(ticketAdminId) && ids.Contains(teamsAdminId)));
 
         await AuditLog.Received().LogAsync(
             AuditAction.IssueSectionChanged,
@@ -1140,11 +1270,26 @@ public sealed class IssuesServiceTests
     }
 
     [HumansFact]
-    public async Task UpdateSectionWithResultAsync_returns_success_when_section_updates()
+    public async Task UpdateSectionAsync_section_handler_routes_an_issue_out_of_their_queue()
+    {
+        // Authorized against the source section: a Ticket Admin holds no Teams role.
+        var (_, issueId) = await SeedIssueAsync(IssueStatus.Open, section: "Tickets");
+        var ticketAdmin = new IssueViewer(Guid.NewGuid(), [RoleNames.TicketAdmin]);
+
+        var result = await _service.UpdateSectionAsync(
+            issueId, ticketAdmin, "Teams", ticketAdmin.UserId, Xunit.TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeTrue();
+        var stored = await _issuesDb.Issues.AsNoTracking().FirstAsync(i => i.Id == issueId, Xunit.TestContext.Current.CancellationToken);
+        stored.Section.Should().Be("Teams");
+    }
+
+    [HumansFact]
+    public async Task UpdateSectionAsync_returns_success_when_section_updates()
     {
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open, section: "Tickets");
 
-        var result = await _service.UpdateSectionWithResultAsync(issueId, Admin, "Teams", Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
+        var result = await _service.UpdateSectionAsync(issueId, Admin, "Teams", Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
 
         result.Succeeded.Should().BeTrue();
         result.NotFound.Should().BeFalse();
@@ -1216,30 +1361,35 @@ public sealed class IssuesServiceTests
     }
 
     [HumansFact]
-    public async Task UpdateSectionWithResultAsync_fails_on_a_section_longer_than_the_column()
+    public async Task UpdateSectionAsync_fails_on_a_section_longer_than_the_column()
     {
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open, section: "Tickets");
 
-        var result = await _service.UpdateSectionWithResultAsync(
+        var result = await _service.UpdateSectionAsync(
             issueId, Admin, new string('x', 65), Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
 
         result.Succeeded.Should().BeFalse();
         result.ErrorMessage.Should().Contain("64 characters");
+        result.ErrorKey.Should().Be("Issue_Section_TooLong");
+        result.ErrorLimit.Should().Be(64);
 
         var stored = await _issuesDb.Issues.AsNoTracking().FirstAsync(i => i.Id == issueId, Xunit.TestContext.Current.CancellationToken);
         stored.Section.Should().Be("Tickets");
     }
 
     [HumansFact]
-    public async Task UpdateSectionWithResultAsync_returns_failure_message_for_terminal_issue()
+    public async Task UpdateSectionAsync_returns_failure_message_for_terminal_issue()
     {
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Resolved, section: "Tickets");
 
-        var result = await _service.UpdateSectionWithResultAsync(issueId, Admin, "Teams", Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
+        var result = await _service.UpdateSectionAsync(issueId, Admin, "Teams", Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
 
         result.Succeeded.Should().BeFalse();
         result.NotFound.Should().BeFalse();
+        result.Rejected.Should().BeTrue();
         result.ErrorMessage.Should().Contain("Cannot change section");
+        result.ErrorKey.Should().Be("Issue_Section_Terminal");
+        result.ErrorLimit.Should().BeNull();
         _logger.ReceivedCalls().Should().ContainSingle(call =>
             call.GetMethodInfo().Name == "Log" &&
             (LogLevel)call.GetArguments()[0]! == LogLevel.Warning &&
@@ -1247,11 +1397,11 @@ public sealed class IssuesServiceTests
     }
 
     [HumansFact]
-    public async Task SetGitHubIssueNumberWithResultAsync_returns_success_when_link_updates()
+    public async Task SetGitHubIssueNumberAsync_returns_success_when_link_updates()
     {
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open);
 
-        var result = await _service.SetGitHubIssueNumberWithResultAsync(issueId, Admin, 1234, Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
+        var result = await _service.SetGitHubIssueNumberAsync(issueId, Admin, 1234, Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
 
         result.Succeeded.Should().BeTrue();
         result.NotFound.Should().BeFalse();
@@ -1274,112 +1424,9 @@ public sealed class IssuesServiceTests
             Arg.Any<Guid?>(), Arg.Any<string?>());
     }
 
-    [HumansFact]
-    public async Task SetGitHubIssueNumberWithResultAsync_returns_not_found_when_issue_is_missing()
-    {
-        var result = await _service.SetGitHubIssueNumberWithResultAsync(Guid.NewGuid(), Admin, 1234, Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
-
-        result.Succeeded.Should().BeFalse();
-        result.NotFound.Should().BeTrue();
-        result.ErrorMessage.Should().NotBeNullOrWhiteSpace();
-        _logger.ReceivedCalls().Should().ContainSingle(call =>
-            call.GetMethodInfo().Name == "Log" &&
-            (LogLevel)call.GetArguments()[0]! == LogLevel.Warning &&
-            call.GetArguments()[3] == null);
-    }
-
     // ==========================================================================
-    // GetIssueListAsync visibility filter
+    // GetIssueListAsync
     // ==========================================================================
-
-    [HumansFact]
-    public async Task GetIssueListAsync_admin_passes_null_section_filter()
-    {
-        var repo = Substitute.For<IIssuesRepository>();
-        repo.GetListAsync(
-                Arg.Any<IssueListFilter>(),
-                Arg.Any<IReadOnlySet<string>?>(),
-                Arg.Any<Guid?>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Issue>>([]));
-
-        var env = Substitute.For<IHostEnvironment>();
-        env.ContentRootPath.Returns(Path.GetTempPath());
-        var svc = new IssuesApplicationService(
-            repo, _userService, _userEmailService, _roleService,
-            _emailService, _emailMessages, _notificationService, Substitute.For<INotificationAutoResolve>(), AuditLog, _navBadge,
-            _issuesBadge, Cache,
-            Clock, env, SectionCatalog, Domain.TestIssueQueues.Shipped(),
-            NullLogger<IssuesApplicationService>.Instance);
-
-        await svc.GetIssueListAsync(new IssueListFilter(), new IssueViewer(Guid.NewGuid(), [RoleNames.Admin]), ct: Xunit.TestContext.Current.CancellationToken);
-
-        await repo.Received(1).GetListAsync(
-            Arg.Any<IssueListFilter>(),
-            Arg.Is<IReadOnlySet<string>?>(s => s == null),
-            Arg.Is<Guid?>(g => g == null),
-            Arg.Any<CancellationToken>());
-    }
-
-    [HumansFact]
-    public async Task GetIssueListAsync_role_holder_passes_section_filter_and_reporter_fallback()
-    {
-        var repo = Substitute.For<IIssuesRepository>();
-        repo.GetListAsync(
-                Arg.Any<IssueListFilter>(),
-                Arg.Any<IReadOnlySet<string>?>(),
-                Arg.Any<Guid?>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Issue>>([]));
-
-        var env = Substitute.For<IHostEnvironment>();
-        env.ContentRootPath.Returns(Path.GetTempPath());
-        var svc = new IssuesApplicationService(
-            repo, _userService, _userEmailService, _roleService,
-            _emailService, _emailMessages, _notificationService, Substitute.For<INotificationAutoResolve>(), AuditLog, _navBadge,
-            _issuesBadge, Cache,
-            Clock, env, SectionCatalog, Domain.TestIssueQueues.Shipped(),
-            NullLogger<IssuesApplicationService>.Instance);
-
-        var viewerId = Guid.NewGuid();
-        await svc.GetIssueListAsync(new IssueListFilter(), new IssueViewer(viewerId, [RoleNames.TicketAdmin]), ct: Xunit.TestContext.Current.CancellationToken);
-
-        await repo.Received(1).GetListAsync(
-            Arg.Any<IssueListFilter>(),
-            Arg.Is<IReadOnlySet<string>?>(s => s != null && s.Contains("Tickets")),
-            Arg.Is<Guid?>(g => g == viewerId),
-            Arg.Any<CancellationToken>());
-    }
-
-    [HumansFact]
-    public async Task GetIssueListAsync_no_roles_filters_to_own_reports_only()
-    {
-        var repo = Substitute.For<IIssuesRepository>();
-        repo.GetListAsync(
-                Arg.Any<IssueListFilter>(),
-                Arg.Any<IReadOnlySet<string>?>(),
-                Arg.Any<Guid?>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Issue>>([]));
-
-        var env = Substitute.For<IHostEnvironment>();
-        env.ContentRootPath.Returns(Path.GetTempPath());
-        var svc = new IssuesApplicationService(
-            repo, _userService, _userEmailService, _roleService,
-            _emailService, _emailMessages, _notificationService, Substitute.For<INotificationAutoResolve>(), AuditLog, _navBadge,
-            _issuesBadge, Cache,
-            Clock, env, SectionCatalog, Domain.TestIssueQueues.Shipped(),
-            NullLogger<IssuesApplicationService>.Instance);
-
-        var viewerId = Guid.NewGuid();
-        await svc.GetIssueListAsync(new IssueListFilter(), new IssueViewer(viewerId, Roles: []), ct: Xunit.TestContext.Current.CancellationToken);
-
-        await repo.Received(1).GetListAsync(
-            Arg.Any<IssueListFilter>(),
-            Arg.Is<IReadOnlySet<string>?>(s => s != null && s.Count == 0),
-            Arg.Is<Guid?>(g => g == viewerId),
-            Arg.Any<CancellationToken>());
-    }
 
     [HumansFact]
     public async Task GetIssueListAsync_applies_updated_descending_limit()
@@ -1429,72 +1476,8 @@ public sealed class IssuesServiceTests
     }
 
     // ==========================================================================
-    // GetActionableCountForViewerAsync
-    // ==========================================================================
-
-    [HumansFact]
-    public async Task GetActionableCountForViewerAsync_admin_passes_null_filter()
-    {
-        var repo = Substitute.For<IIssuesRepository>();
-        repo.CountActionableAsync(
-                Arg.Any<IReadOnlySet<string>?>(),
-                Arg.Any<Guid?>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(0));
-
-        var env = Substitute.For<IHostEnvironment>();
-        env.ContentRootPath.Returns(Path.GetTempPath());
-        var svc = new IssuesApplicationService(
-            repo, _userService, _userEmailService, _roleService,
-            _emailService, _emailMessages, _notificationService, Substitute.For<INotificationAutoResolve>(), AuditLog, _navBadge,
-            _issuesBadge, Cache,
-            Clock, env, SectionCatalog, Domain.TestIssueQueues.Shipped(),
-            NullLogger<IssuesApplicationService>.Instance);
-
-        await svc.GetActionableCountForViewerAsync(
-            new IssueViewer(Guid.NewGuid(), [RoleNames.Admin]), Xunit.TestContext.Current.CancellationToken);
-
-        await repo.Received(1).CountActionableAsync(
-            Arg.Is<IReadOnlySet<string>?>(s => s == null),
-            Arg.Is<Guid?>(g => g == null),
-            Arg.Any<CancellationToken>());
-    }
-
-    [HumansFact]
-    public async Task GetActionableCountForViewerAsync_section_owner_passes_section_set()
-    {
-        var repo = Substitute.For<IIssuesRepository>();
-        repo.CountActionableAsync(
-                Arg.Any<IReadOnlySet<string>?>(),
-                Arg.Any<Guid?>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(0));
-
-        var env = Substitute.For<IHostEnvironment>();
-        env.ContentRootPath.Returns(Path.GetTempPath());
-        var svc = new IssuesApplicationService(
-            repo, _userService, _userEmailService, _roleService,
-            _emailService, _emailMessages, _notificationService, Substitute.For<INotificationAutoResolve>(), AuditLog, _navBadge,
-            _issuesBadge, Cache,
-            Clock, env, SectionCatalog, Domain.TestIssueQueues.Shipped(),
-            NullLogger<IssuesApplicationService>.Instance);
-
-        var viewerId = Guid.NewGuid();
-        await svc.GetActionableCountForViewerAsync(
-            new IssueViewer(viewerId, [RoleNames.TeamsAdmin]), Xunit.TestContext.Current.CancellationToken);
-
-        await repo.Received(1).CountActionableAsync(
-            Arg.Is<IReadOnlySet<string>?>(s => s != null && s.Contains("Teams")),
-            Arg.Is<Guid?>(g => g == viewerId),
-            Arg.Any<CancellationToken>());
-    }
-
-    // ==========================================================================
-    // Visibility predicate, against the real repository
-    //
-    // The substitute-backed tests above pin which arguments the service passes.
-    // These run the predicate itself: "in one of my sections OR reported by me".
-    // With a substitute returning [], flipping that OR to an AND still passes.
+    // Visibility predicate, against the real repository:
+    // "in one of my sections OR reported by me"; Admin sees everything.
     // ==========================================================================
 
     [HumansFact]
@@ -1519,6 +1502,39 @@ public sealed class IssuesServiceTests
     }
 
     [HumansFact]
+    public async Task GetIssueListAsync_admin_sees_every_section()
+    {
+        var reporterId = Guid.NewGuid();
+        SeedUser(reporterId, "Reporter").Email = "reporter@example.org";
+        await Db.SaveChangesAsync(Xunit.TestContext.Current.CancellationToken);
+
+        var tickets = await SeedIssueRowAsync(reporterId, IssueStatus.Open, "Tickets", "Tickets");
+        var camps = await SeedIssueRowAsync(reporterId, IssueStatus.Open, "Camps", "Camps");
+        var unrouted = await SeedIssueRowAsync(reporterId, IssueStatus.Open, "Unrouted", null);
+
+        var result = await _service.GetIssueListAsync(new IssueListFilter(), Admin, ct: Xunit.TestContext.Current.CancellationToken);
+
+        result.Select(i => i.Id).Should().BeEquivalentTo([tickets, camps, unrouted]);
+    }
+
+    [HumansFact]
+    public async Task GetIssueListAsync_no_roles_sees_own_reports_only()
+    {
+        var viewerId = Guid.NewGuid();
+        var strangerId = Guid.NewGuid();
+        SeedUser(viewerId, "Viewer").Email = "viewer@example.org";
+        SeedUser(strangerId, "Stranger").Email = "stranger@example.org";
+        await Db.SaveChangesAsync(Xunit.TestContext.Current.CancellationToken);
+
+        var ownReport = await SeedIssueRowAsync(viewerId, IssueStatus.Open, "Mine", "Tickets");
+        await SeedIssueRowAsync(strangerId, IssueStatus.Open, "Not mine", "Tickets");
+
+        var result = await _service.GetIssueListAsync(new IssueListFilter(), new IssueViewer(viewerId, Roles: []), ct: Xunit.TestContext.Current.CancellationToken);
+
+        result.Select(i => i.Id).Should().Equal(ownReport);
+    }
+
+    [HumansFact]
     public async Task CountActionableAsync_counts_own_section_and_own_reports_only()
     {
         var viewerId = Guid.NewGuid();
@@ -1531,12 +1547,16 @@ public sealed class IssuesServiceTests
         await SeedIssueRowAsync(strangerId, IssueStatus.Open, "Not mine", "Camps");
         await SeedIssueRowAsync(viewerId, IssueStatus.Triage, "Mine, elsewhere", "Camps");
         await SeedIssueRowAsync(strangerId, IssueStatus.Resolved, "Terminal, my section", "Tickets");
+        await SeedIssueRowAsync(strangerId, IssueStatus.InProgress, "Being worked, my section", "Tickets");
+        await SeedIssueRowAsync(strangerId, IssueStatus.Open, "Unrouted", null);
 
         var count = await _service.GetActionableCountForViewerAsync(
             new IssueViewer(viewerId, [RoleNames.TicketAdmin]),
             Xunit.TestContext.Current.CancellationToken);
 
         count.Should().Be(2);
+        (await _service.GetActionableCountForViewerAsync(Admin, Xunit.TestContext.Current.CancellationToken))
+            .Should().Be(4, "Admin counts every Triage/Open issue, unrouted included");
     }
 
     // ==========================================================================
@@ -1703,7 +1723,7 @@ public sealed class IssuesServiceTests
         // comment on it, and still may not move it.
         var reporter = new IssueViewer(reporterId, []);
 
-        var mutations = new Func<Task>[]
+        var mutations = new Func<Task<IssueMutationResult>>[]
         {
             () => _service.UpdateStatusAsync(issueId, reporter, IssueStatus.Resolved, reporterId, Ct),
             () => _service.UpdateAssigneeAsync(issueId, reporter, reporterId, reporterId, Ct),
@@ -1713,7 +1733,7 @@ public sealed class IssuesServiceTests
 
         foreach (var mutate in mutations)
         {
-            await mutate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*not found*");
+            (await mutate()).NotFound.Should().BeTrue();
         }
 
         var after = await _service.GetIssueByIdAsync(issueId, Admin, Ct);
@@ -1741,9 +1761,10 @@ public sealed class IssuesServiceTests
         var (_, issueId) = await SeedIssueAsync(IssueStatus.Open, section: "Tickets");
         var stranger = Stranger();
 
-        var act = () => _service.PostCommentAsync(issueId, stranger, stranger.UserId, "Hello", ct: Ct);
+        var result = await _service.PostCommentAsync(issueId, stranger, stranger.UserId, "Hello", ct: Ct);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*not found*");
+        result.NotFound.Should().BeTrue();
+        result.Comment.Should().BeNull();
     }
 
     [HumansFact]
@@ -1831,8 +1852,182 @@ public sealed class IssuesServiceTests
     }
 
     // ==========================================================================
+    // Screenshots — stored through IFileStorage, served behind the issue's reach check
+    // ==========================================================================
+
+    private static IFormFile PngUpload(byte[] bytes)
+    {
+        var upload = Substitute.For<IFormFile>();
+        upload.Length.Returns(bytes.Length);
+        upload.ContentType.Returns("image/png");
+        upload.FileName.Returns("shot.png");
+        upload.OpenReadStream().Returns(_ => new MemoryStream(bytes));
+        return upload;
+    }
+
+    [HumansFact]
+    public async Task SubmitIssueAsync_saves_the_screenshot_through_file_storage()
+    {
+        var reporter = SeedUser();
+        byte[] bytes = [9, 8, 7];
+
+        var issue = await _service.SubmitIssueAsync(
+            reporter.Id, IssueCategory.Bug, "T", "D",
+            section: null, pageUrl: null, userAgent: null, additionalContext: null,
+            screenshot: PngUpload(bytes), ct: Ct);
+
+        issue.ScreenshotStoragePath.Should().StartWith($"uploads/issues/{issue.Id}/").And.EndWith(".png");
+        issue.ScreenshotContentType.Should().Be("image/png");
+        FileStorage.Files[issue.ScreenshotStoragePath!].Should().Equal(bytes);
+    }
+
+    [HumansFact]
+    public async Task EraseForUserAsync_deletes_the_screenshot_through_file_storage_and_keeps_others()
+    {
+        var aliceId = Guid.NewGuid();
+        var bobId = Guid.NewGuid();
+        SeedUser(aliceId, "Alice").Email = "a@a.com";
+        SeedUser(bobId, "Bob").Email = "b@b.com";
+        await Db.SaveChangesAsync(Ct);
+        var aliceIssue = await SeedIssueRowAsync(aliceId, IssueStatus.Open, "Alice's");
+        var bobIssue = await SeedIssueRowAsync(bobId, IssueStatus.Open, "Bob's");
+        var aliceKey = $"uploads/issues/{aliceIssue}/a.png";
+        var bobKey = $"uploads/issues/{bobIssue}/b.png";
+        FileStorage.Files[aliceKey] = [1];
+        FileStorage.Files[bobKey] = [2];
+        (await _issuesDb.Issues.FirstAsync(i => i.Id == aliceIssue, Ct)).ScreenshotStoragePath = aliceKey;
+        (await _issuesDb.Issues.FirstAsync(i => i.Id == bobIssue, Ct)).ScreenshotStoragePath = bobKey;
+        await _issuesDb.SaveChangesAsync(Ct);
+
+        await _service.EraseForUserAsync(aliceId, Ct);
+
+        FileStorage.Files.Should().NotContainKey(aliceKey);
+        FileStorage.Files.Should().ContainKey(bobKey);
+    }
+
+    private async Task<Guid> SeedIssueWithScreenshotAsync(
+        Guid reporterId, string? section, string contentType, byte[] bytes)
+    {
+        var id = await SeedIssueRowAsync(reporterId, IssueStatus.Open, "With screenshot", section);
+        var key = $"uploads/issues/{id}/shot.png";
+        FileStorage.Files[key] = bytes;
+        var row = await _issuesDb.Issues.FirstAsync(i => i.Id == id, Ct);
+        row.ScreenshotStoragePath = key;
+        row.ScreenshotContentType = contentType;
+        await _issuesDb.SaveChangesAsync(Ct);
+        return id;
+    }
+
+    [HumansFact]
+    public async Task GetScreenshotAsync_serves_the_reporter_and_a_section_handler()
+    {
+        var reporterId = Guid.NewGuid();
+        SeedUser(reporterId, "Reporter").Email = "r@r.com";
+        await Db.SaveChangesAsync(Ct);
+        byte[] bytes = [1, 2, 3];
+        var issueId = await SeedIssueWithScreenshotAsync(reporterId, "Tickets", "image/png", bytes);
+
+        foreach (var viewer in new[] { new IssueViewer(reporterId, []), Handler(), Admin })
+        {
+            var shot = await _service.GetScreenshotAsync(issueId, viewer, Ct);
+
+            shot.Should().NotBeNull();
+            shot.Content.Should().Equal(bytes);
+            shot.ContentType.Should().Be("image/png");
+        }
+    }
+
+    [HumansFact]
+    public async Task GetScreenshotAsync_hides_the_screenshot_from_a_stranger_and_answers_missing_alike()
+    {
+        var reporterId = Guid.NewGuid();
+        SeedUser(reporterId, "Reporter").Email = "r@r.com";
+        await Db.SaveChangesAsync(Ct);
+        var issueId = await SeedIssueWithScreenshotAsync(reporterId, "Tickets", "image/png", [1]);
+        var noScreenshot = await SeedIssueRowAsync(reporterId, IssueStatus.Open, "Plain", "Tickets");
+
+        (await _service.GetScreenshotAsync(issueId, Stranger(), Ct)).Should().BeNull();
+        (await _service.GetScreenshotAsync(noScreenshot, Admin, Ct)).Should().BeNull();
+        (await _service.GetScreenshotAsync(Guid.NewGuid(), Admin, Ct)).Should().BeNull();
+    }
+
+    private IssuesController ScreenshotController(Guid userId)
+    {
+        using var services = new ServiceCollection().AddLogging().AddLocalization().BuildServiceProvider();
+        return new IssuesController(_service, Substitute.For<IAuthorizationService>(), _userService,
+            Domain.TestIssueQueues.Shipped(), services.GetRequiredService<IStringLocalizer<IssuesResource>>(),
+            NullLogger<IssuesController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                        [new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test"))
+                }
+            }
+        };
+    }
+
+    [HumansFact]
+    public async Task Screenshot_action_returns_the_file_with_its_content_type_to_the_reporter()
+    {
+        var reporter = SeedUser();
+        byte[] bytes = [5, 6, 7];
+        var issueId = await SeedIssueWithScreenshotAsync(reporter.Id, "Tickets", "image/webp", bytes);
+
+        var result = await ScreenshotController(reporter.Id).Screenshot(issueId);
+
+        var file = result.Should().BeOfType<FileContentResult>().Subject;
+        file.ContentType.Should().Be("image/webp");
+        file.FileContents.Should().Equal(bytes);
+    }
+
+    [HumansFact]
+    public async Task Screenshot_action_returns_404_to_someone_who_may_not_see_the_issue()
+    {
+        var reporter = SeedUser();
+        var stranger = SeedUser();
+        var issueId = await SeedIssueWithScreenshotAsync(reporter.Id, "Tickets", "image/png", [1]);
+
+        (await ScreenshotController(stranger.Id).Screenshot(issueId)).Should().BeOfType<NotFoundResult>();
+        (await ScreenshotController(stranger.Id).Screenshot(Guid.NewGuid())).Should().BeOfType<NotFoundResult>();
+    }
+
+    // ==========================================================================
     // PurgeExpiredAsync — 6-month retention sweep used by CleanupIssuesJob
     // ==========================================================================
+
+    [HumansTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ScreenshotCleanupFailure_AfterCommittedErasure_DoesNotReverseSuccess(bool gdprErasure)
+    {
+        const string key = "uploads/issues/cleanup/shot.png";
+        var issueId = await SeedIssueWithResolvedAtAsync(
+            IssueStatus.Resolved, Clock.GetCurrentInstant() - Duration.FromDays(200), key);
+        var reporterId = (await _issuesDb.Issues.SingleAsync(i => i.Id == issueId, Ct)).ReporterUserId;
+        var rowRemovedAtCleanup = false;
+        CancellationToken? cleanupToken = null;
+        _fileStorage.DeleteAsync(key, Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            rowRemovedAtCleanup = !await _issuesDb.Issues.AsNoTracking().AnyAsync(i => i.Id == issueId, Ct);
+            cleanupToken = call.ArgAt<CancellationToken>(1);
+            throw new IOException("Screenshot storage unavailable");
+        });
+        var service = new IssuesApplicationService(
+            _repository, _userService, _userEmailService, _roleService,
+            _emailService, _emailMessages, _notificationService, _notificationInbox, AuditLog, _navBadge,
+            _issuesBadge, Cache, Clock, _fileStorage, SectionCatalog, Domain.TestIssueQueues.Shipped(), _logger);
+
+        if (gdprErasure) await service.EraseForUserAsync(reporterId, Ct);
+        else (await service.PurgeExpiredAsync(Ct)).Should().Be(1);
+
+        (await _issuesDb.Issues.AsNoTracking().AnyAsync(i => i.Id == issueId, Ct)).Should().BeFalse();
+        rowRemovedAtCleanup.Should().BeTrue();
+        cleanupToken.Should().Be(CancellationToken.None);
+        await _fileStorage.Received(1).DeleteAsync(key, CancellationToken.None);
+    }
 
     [HumansFact]
     public async Task PurgeExpiredAsync_DeletesTerminalIssuesOlderThanSixMonths()
@@ -1884,46 +2079,34 @@ public sealed class IssuesServiceTests
     }
 
     [HumansFact]
-    public async Task PurgeExpiredAsync_DeletesScreenshotDirectory()
+    public async Task PurgeExpiredAsync_DeletesScreenshotThroughFileStorage()
     {
         var oldResolved = Clock.GetCurrentInstant() - Duration.FromDays(200);
-
         var issueId = Guid.NewGuid();
-        var screenshotDir = Path.Combine(
-            Path.GetTempPath(), "wwwroot", "uploads", "issues", issueId.ToString());
-        Directory.CreateDirectory(screenshotDir);
-        var screenshotFile = Path.Combine(screenshotDir, "shot.png");
-        await File.WriteAllBytesAsync(screenshotFile, [1, 2, 3], Xunit.TestContext.Current.CancellationToken);
+        var key = $"uploads/issues/{issueId}/shot.png";
+        FileStorage.Files[key] = [1, 2, 3];
 
-        try
+        var reporterId = Guid.NewGuid();
+        SeedUser(reporterId, "Reporter").Email = $"{reporterId}@test.com";
+        _issuesDb.Issues.Add(new Issue
         {
-            var reporterId = Guid.NewGuid();
-            SeedUser(reporterId, "Reporter").Email = $"{reporterId}@test.com";
-            _issuesDb.Issues.Add(new Issue
-            {
-                Id = issueId,
-                ReporterUserId = reporterId,
-                Category = IssueCategory.Bug,
-                Title = "Has screenshot",
-                Description = "...",
-                Status = IssueStatus.Resolved,
-                CreatedAt = oldResolved,
-                UpdatedAt = oldResolved,
-                ResolvedAt = oldResolved,
-                ScreenshotStoragePath = $"uploads/issues/{issueId}/shot.png"
-            });
-            await _issuesDb.SaveChangesAsync(Xunit.TestContext.Current.CancellationToken);
+            Id = issueId,
+            ReporterUserId = reporterId,
+            Category = IssueCategory.Bug,
+            Title = "Has screenshot",
+            Description = "...",
+            Status = IssueStatus.Resolved,
+            CreatedAt = oldResolved,
+            UpdatedAt = oldResolved,
+            ResolvedAt = oldResolved,
+            ScreenshotStoragePath = key
+        });
+        await _issuesDb.SaveChangesAsync(Xunit.TestContext.Current.CancellationToken);
 
-            var deleted = await _service.PurgeExpiredAsync(Xunit.TestContext.Current.CancellationToken);
+        var deleted = await _service.PurgeExpiredAsync(Xunit.TestContext.Current.CancellationToken);
 
-            deleted.Should().Be(1);
-            Directory.Exists(screenshotDir).Should().BeFalse();
-        }
-        finally
-        {
-            if (Directory.Exists(screenshotDir))
-                Directory.Delete(screenshotDir, recursive: true);
-        }
+        deleted.Should().Be(1);
+        FileStorage.Files.Should().NotContainKey(key);
     }
 
     [HumansFact]
@@ -1979,7 +2162,7 @@ public sealed class IssuesServiceTests
     }
 
     // ==========================================================================
-    // Merged-away ids (#1704): in-app notifications reach the survivor, and the
+    // Merged-away ids (peterdrier/Humans#1704): in-app notifications reach the survivor, and the
     // assignee is stored as the live id.
     // ==========================================================================
 
