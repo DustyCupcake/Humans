@@ -23,7 +23,7 @@
 # citing its id in the PR. Shape, `status:` values and `root:` linking:
 # memory/process/debt-ledger-additions.md.
 version: 1
-next_id: 83
+next_id: 84
 recent_sections: [Campaigns, Feedback, Governance]
 themes:
   - id: grandfathered-hum0031-controller-logic
@@ -267,6 +267,10 @@ inbox:
   - added: 2026-10-16
     id: CENTRAL-82
     what: "tests/Humans.Integration.Tests/Controllers/MonitorPageRenderTests.cs is named for Monitor but renders only GoogleIntegration's /Google/Resource/{id} and /Google/Human/{id} pages (its own summary says so); Monitor has no pages. Rename the class and file for GoogleIntegration and update the reference in AuditLogPageRenderTests.cs's remarks. Found by /section-doctor on Monitor 2026-10-16."
+    review: light
+  - added: 2026-10-12
+    id: CENTRAL-83
+    what: "Camps season open/close and name-lock-date writes (CampService.OpenSeasonAsync, CloseSeasonAsync, SetNameLockDateAsync, CampAdmin actions) leave no audit entry, and AuditAction (src/Sections/Humans.AuditLog/Contracts/AuditAction.cs) has no member for them. AGENTS.md: admin actions need their audit entries. Fix spans AuditLog (new AuditAction members + labels) and Camps (log the writes). Found by section-doctor 2026-10-12 (docs/health/runs/2026-10-12-Camps.md)."
     review: light
   - added: 2026-09-20
     id: CENTRAL-59
