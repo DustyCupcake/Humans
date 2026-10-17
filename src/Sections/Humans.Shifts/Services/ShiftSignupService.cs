@@ -26,7 +26,7 @@ namespace Humans.Shifts.Services;
 internal sealed class ShiftSignupService(
     IShiftManagementRepository repo,
     IVolunteerTrackingRepository trackingRepo,
-    IShiftManagementService shiftMgmt,
+    IShiftManagement shiftMgmt,
     EventCalendarResolver calendarResolver,
     IAuditLogService auditLogService,
     INotificationEmitter notificationService,
@@ -36,7 +36,7 @@ internal sealed class ShiftSignupService(
     IServiceProvider serviceProvider,
     IClock clock,
     ILogger<ShiftSignupService> logger,
-    IUserServiceRead users,
+    IUserService users,
     IStringLocalizer<ShiftsResource> localizer) : IShiftSignupService, IUserDataContributor, IUserMerge, ICalendarFeedContributor
 {
     private static readonly ResourceManager NoticeResources = new(typeof(ShiftsResource));
@@ -48,7 +48,7 @@ internal sealed class ShiftSignupService(
     internal const string ShiftTagPreferences = "ShiftTagPreferences";
 
     // Lazy-resolved for notification coordinator / team-name lookups.
-    private ITeamServiceRead TeamService => serviceProvider.GetRequiredService<ITeamServiceRead>();
+    private ITeamService TeamService => serviceProvider.GetRequiredService<ITeamService>();
 
     public async Task<SignupResult> SignUpAsync(
         Guid userId,
@@ -276,6 +276,11 @@ internal sealed class ShiftSignupService(
 
     public async Task<SignupResult> VoluntellAsync(Guid userId, Guid shiftId, Guid enrollerUserId)
     {
+        var targetUserId = await ResolveVoluntellTargetAsync(userId);
+        if (targetUserId is null)
+            return SignupResult.Fail(localizer["Shifts_AccountCannotSignUp"]);
+        userId = targetUserId.Value;
+
         var activeShiftIds = await repo.GetActiveShiftIdsForUserAsync(userId, [shiftId]);
         if (activeShiftIds.Contains(shiftId))
             return SignupResult.Fail(localizer["Shifts_Signup_AlreadySignedUp"]);
@@ -344,6 +349,11 @@ internal sealed class ShiftSignupService(
 
     public async Task<SignupResult> VoluntellRangeAsync(Guid userId, Guid rotaId, int startDayOffset, int endDayOffset, Guid enrollerUserId)
     {
+        var targetUserId = await ResolveVoluntellTargetAsync(userId);
+        if (targetUserId is null)
+            return SignupResult.Fail(localizer["Shifts_AccountCannotSignUp"]);
+        userId = targetUserId.Value;
+
         var rota = await repo.GetRotaAsync(rotaId, RotaReadShape.Shifts);
         if (rota is null) return SignupResult.Fail(localizer["Shifts_Signup_RotaNotFound"]);
 
@@ -1161,6 +1171,12 @@ internal sealed class ShiftSignupService(
             body is null ? title : string.Concat(title, "\n\n", body));
     }
 
+    private async Task<Guid?> ResolveVoluntellTargetAsync(Guid userId)
+    {
+        var user = await users.GetUserInfoAsync(userId);
+        return user is null || user.IsTombstone ? null : user.Id;
+    }
+
     private async Task SendAssignmentNoticeAsync(Guid userId, string resourceKey, params object[] args)
     {
         var culture = await GetRecipientCultureAsync(userId);
@@ -1403,7 +1419,7 @@ internal sealed class ShiftSignupService(
             .ToList();
         if (signups.Count == 0) return [];
 
-        // Team names cross-section via ITeamServiceRead (same as the GDPR contributor).
+        // Team names cross-section via ITeamService (same as the GDPR contributor).
         var teamsById = await TeamService.GetTeamsAsync(ct);
 
         var calendarsById = new Dictionary<Guid, EventSettingsInfo>();

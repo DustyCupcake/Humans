@@ -16,10 +16,14 @@ internal sealed class ExpenseReport
     public Guid? BudgetCategoryId { get; set; }
     /// <summary>Budget year of <see cref="BudgetCategoryId"/>; null when the report has no category.</summary>
     public Guid? BudgetYearId { get; set; }
+    /// <summary>Pre-approval grant this report files against (Preapprovals section), or null.
+    /// Set at draft; the account and cap are restamped from the grant at submit.</summary>
+    public Guid? PreapprovalGrantId { get; set; }
     public ExpenseReportStatus Status { get; set; }
     public string? Note { get; set; }
     public string PayeeName { get; set; } = "";
     public string PayeeIban { get; set; } = "";
+    /// <summary>Sum of the top-level line amounts a reviewer has not declined — the repository keeps it in step.</summary>
     public decimal Total { get; set; }
     /// <summary>Cap the deciders authorized, or null for no cap. Payable is min(Total, MaxAmount).</summary>
     public decimal? MaxAmount { get; set; }

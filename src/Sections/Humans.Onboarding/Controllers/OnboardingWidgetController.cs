@@ -21,11 +21,11 @@ namespace Humans.Onboarding.Controllers;
 /// </summary>
 [Authorize]
 internal sealed class OnboardingWidgetController(
-    IUserServiceRead userService,
+    IUserService userService,
     IOnboardingWidgetState state,
     IProfileEditorService profileEditorService,
     IShiftSignups signupService,
-    IShiftManagementServiceRead shiftMgmt,
+    IShiftManagementService shiftMgmt,
     ISettingsService settingsService,
     IShiftView shiftView,
     IConsentSubmission consents,
@@ -34,7 +34,7 @@ internal sealed class OnboardingWidgetController(
     IStringLocalizer<OnboardingResource> localizer,
     IStringLocalizer<ConsentResource> consentLocalizer) : HumansControllerBase(userService)
 {
-    private readonly IUserServiceRead _userService = userService;
+    private readonly IUserService _userService = userService;
 
     // [Authorize] guarantees NameIdentifier is present.
     private Guid CurrentUserId() =>

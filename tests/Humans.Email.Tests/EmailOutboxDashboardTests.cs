@@ -20,13 +20,13 @@ public sealed class EmailOutboxDashboardTests
     [HumansFact]
     public async Task EmailOutbox_UsesConfiguredBatchSize()
     {
-        var outbox = Substitute.For<IEmailOutboxService>();
+        var outbox = Substitute.For<IEmailOutboxManagement>();
         outbox.GetOutboxStatsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new EmailOutboxStats(0, 0, 0, 0, false, []));
         outbox.GetDailySendCountsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new DailySendCountsDto([], []));
         var controller = new EmailController(
-            Substitute.For<IUserServiceRead>(), outbox, Substitute.For<IAuditLogService>(),
+            Substitute.For<IUserService>(), outbox, Substitute.For<IAuditLogService>(),
             NullLogger<EmailController>.Instance,
             Options.Create(new EmailSettings { OutboxBatchSize = 37 }))
         {
@@ -46,7 +46,7 @@ public sealed class EmailOutboxDashboardTests
     {
         using var aborted = new CancellationTokenSource();
         await aborted.CancelAsync();
-        var outbox = Substitute.For<IEmailOutboxService>();
+        var outbox = Substitute.For<IEmailOutboxManagement>();
         outbox.GetOutboxStatsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new EmailOutboxStats(0, 0, 0, 0, false, []));
         outbox.GetDailySendCountsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -63,7 +63,7 @@ public sealed class EmailOutboxDashboardTests
             outbox.PreviewDailySendCountBackfillAsync(aborted.Token)
                 .Returns(Task.FromCanceled<BackfillPreviewDto>(aborted.Token));
         var controller = new EmailController(
-            Substitute.For<IUserServiceRead>(), outbox, Substitute.For<IAuditLogService>(),
+            Substitute.For<IUserService>(), outbox, Substitute.For<IAuditLogService>(),
             NullLogger<EmailController>.Instance, Options.Create(new EmailSettings()))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { RequestAborted = aborted.Token } }

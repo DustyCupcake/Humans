@@ -6,11 +6,11 @@ using Humans.Users.Contracts;
 namespace Humans.Camps.Contracts;
 
 public abstract class HumansCampControllerBase(
-    IUserServiceRead userService,
-    ICampServiceRead campService,
+    IUserService userService,
+    ICampService campService,
     IAuthorizationService authorizationService) : HumansControllerBase(userService)
 {
-    protected ICampServiceRead CampService => campService;
+    protected ICampService CampService => campService;
 
     protected Task<CampInfo?> GetCampBySlugAsync(string slug, CancellationToken cancellationToken = default)
     {

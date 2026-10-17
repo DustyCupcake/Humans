@@ -25,12 +25,12 @@ namespace Humans.Debug.Controllers;
 [Authorize(Policy = PolicyNames.AdminOnly)]
 [Route("Debug/WidgetGallery")]
 internal sealed class WidgetGalleryController(
-    IUserServiceRead userService,
-    ITeamServiceRead teamService,
-    ICampServiceRead campService,
-    IShiftManagementServiceRead shiftService,
+    IUserService userService,
+    ITeamService teamService,
+    ICampService campService,
+    IShiftManagementService shiftService,
     ISettingsService settingsService,
-    IEventServiceRead eventService,
+    IEventService eventService,
     IConfiguration configuration) : HumansControllerBase(userService)
 {
     private static readonly Guid SampleTeamId = Guid.NewGuid();

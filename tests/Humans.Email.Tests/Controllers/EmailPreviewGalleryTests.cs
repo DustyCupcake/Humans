@@ -40,8 +40,8 @@ public sealed class EmailPreviewGalleryTests
             .Returns(call => ($"[wrapped]{call.ArgAt<string>(0)}", "plain"));
 
         var controller = new EmailController(
-            Substitute.For<IUserServiceRead>(),
-            Substitute.For<IEmailOutboxService>(),
+            Substitute.For<IUserService>(),
+            Substitute.For<IEmailOutboxManagement>(),
             Substitute.For<IAuditLogService>(),
             NullLogger<EmailController>.Instance,
             Options.Create(new EmailSettings()));
@@ -54,8 +54,8 @@ public sealed class EmailPreviewGalleryTests
     [HumansFact]
     public async Task OutboxMutations_WithoutActor_RefuseBeforeWriting()
     {
-        var outbox = Substitute.For<IEmailOutboxService>();
-        var controller = new EmailController(Substitute.For<IUserServiceRead>(), outbox,
+        var outbox = Substitute.For<IEmailOutboxManagement>();
+        var controller = new EmailController(Substitute.For<IUserService>(), outbox,
             Substitute.For<IAuditLogService>(), NullLogger<EmailController>.Instance,
             Options.Create(new EmailSettings()))
         {

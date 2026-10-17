@@ -59,9 +59,8 @@ whole reporter list, gated by its one caller: `Index` asks for it only inside
 - **`Controllers/` + `Models/` + `Views/`** — one controller, one page (list + inline detail),
   one submit form, one widget modal. View models carry only what a `.cshtml` renders. Every
   action builds its viewer through `ViewerFor` and reads admin-ness off it — never `User.IsInRole`
-  and never a second viewer inline. **Target, not built:** the Area label and the
-  page-path → queue guess come from the sections that own the queues, not from hand lists in
-  `Models/` (`AreaLabelMap`, `IssueSectionInference`) that name sections by hand.
+  and never a second viewer inline. Area labels, dropdown options and page-path inference
+  come from each owner’s `IIssueQueueOwner` declaration through `IssueSectionRouting`.
 - **`Authorization/`** — one requirement (`Handle`) and its resource handler, which asks
   `IssueSectionRouting.CanHandle` the same question the service asks, to shape the page and to
   answer 403 where the service would answer 404.
@@ -120,7 +119,7 @@ whole reporter list, gated by its one caller: `Index` asks for it only inside
 - **No cross-section FK constraints and no navigation properties.**
   `Reporter`/`Assignee`/`ResolvedByUser`/`SenderUser` are bare `Guid` columns — no `HasOne<User>()`,
   no delete behaviour, nothing for EF to join across. Display names are stitched in memory via
-  `IUserServiceRead`. Account deletion anonymises the `User` row in place, but that's moot here:
+  `IUserService`. Account deletion anonymises the `User` row in place, but that's moot here:
   the section's own GDPR contributor erases or nulls these ids first.
 - **No `nameof`-derived audit discriminators.** `AuditEntityTypes.Issue` is a literal because
   it is persisted data.

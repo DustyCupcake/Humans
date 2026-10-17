@@ -21,9 +21,9 @@ namespace Humans.Events.Controllers;
 [Route("Events/Moderate")]
 [ServiceFilter(typeof(EventsFeatureFilter))]
 internal sealed class EventsModerationController(
-    IEventService guide,
-    IUserServiceRead userService,
-    ICampServiceRead camps,
+    IEventManagement guide,
+    IUserService userService,
+    ICampService camps,
     ILogger<EventsModerationController> logger) : HumansControllerBase(userService)
 {
     [HttpGet("")]

@@ -25,9 +25,9 @@ namespace Humans.Feedback.Services;
 /// </summary>
 internal sealed class FeedbackService(
     IFeedbackRepository repository,
-    IUserServiceRead userService,
+    IUserService userService,
     IUserEmailService userEmailService,
-    ITeamServiceRead teamService,
+    ITeamService teamService,
     IEmailService emailService,
     FeedbackEmails emailMessages,
     INotificationEmitter notificationService,
@@ -36,7 +36,7 @@ internal sealed class FeedbackService(
     IFileStorage fileStorage,
     IMemoryCache cache,
     IClock clock,
-    ILogger<FeedbackService> logger) : IFeedbackServiceRead, IFeedbackTriage, IUserDataContributor, IUserMerge
+    ILogger<FeedbackService> logger) : IFeedbackService, IFeedbackTriage, IUserDataContributor, IUserMerge
 {
     internal const string FeedbackReports = "FeedbackReports";
 

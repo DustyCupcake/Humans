@@ -48,6 +48,14 @@ internal interface IExpenseRepository : IRepository
     /// Returns whether the line exists and its removed attachment for post-commit file cleanup.</summary>
     Task<(bool Found, ExpenseAttachment? Replaced)> ReplaceLineAttachmentAsync(
         Guid reportId, Guid lineId, ExpenseAttachment? attachment, CancellationToken ct = default);
+    /// <summary>
+    /// Marks the line declined (with reason and reviewer) or clears the decline, moving the
+    /// report's stored <c>Total</c> by the line's amount. Who may decline is the service's call.
+    /// Returns false when the report or line does not exist.
+    /// </summary>
+    Task<bool> SetLineDeclinedAsync(
+        Guid reportId, Guid lineId, bool declined, string? reason, Guid? byUserId,
+        NodaTime.Instant now, CancellationToken ct = default);
     /// <summary>Unlinks a report's line and deletes its attachment metadata in one save; returns the removed row for post-commit file cleanup.</summary>
     Task<ExpenseAttachment?> RemoveLineAttachmentAsync(Guid reportId, Guid lineId, CancellationToken ct = default);
 
@@ -60,10 +68,15 @@ internal interface IExpenseRepository : IRepository
     Task<bool> UpdatePayeeIbanAsync(
         Guid reportId, string payeeIban, NodaTime.Instant updatedAt, CancellationToken ct = default);
 
+    /// <summary>A non-null <paramref name="grantStamp"/> rebooks the report to its pre-approval's
+    /// account (no category, no year) and writes <paramref name="grantMaxAmount"/> as the cap, both
+    /// read from the grant at submit; null leaves the booking and cap as they are.</summary>
     Task<bool> SubmitAsync(
         Guid reportId,
         string payeeName, string payeeIban,
         NodaTime.Instant submittedAt,
+        ExpenseBooking? grantStamp = null,
+        decimal? grantMaxAmount = null,
         CancellationToken ct = default);
 
     Task<bool> WithdrawAsync(

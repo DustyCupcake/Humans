@@ -41,13 +41,13 @@ public class ShiftAdminControllerTests
     private static readonly Guid OtherTeamId = Guid.NewGuid();
     private const string Slug = "gate";
 
-    private readonly IShiftManagementService _shiftMgmt = Substitute.For<IShiftManagementService>();
-    private readonly ITeamServiceRead _teamService = Substitute.For<ITeamServiceRead>();
-    private readonly IUserServiceRead _userService = Substitute.For<IUserServiceRead>();
+    private readonly IShiftManagement _shiftMgmt = Substitute.For<IShiftManagement>();
+    private readonly ITeamService _teamService = Substitute.For<ITeamService>();
+    private readonly IUserService _userService = Substitute.For<IUserService>();
     private readonly IBurnSettingsService _burnSettings = Substitute.For<IBurnSettingsService>();
     private readonly IShiftSignupService _signupService = Substitute.For<IShiftSignupService>();
     private readonly IShiftRowView _shiftView = Substitute.For<IShiftRowView>();
-    private readonly IVolunteerTrackingService _tracking = Substitute.For<IVolunteerTrackingService>();
+    private readonly IVolunteerTrackingManagement _tracking = Substitute.For<IVolunteerTrackingManagement>();
     private readonly IStringLocalizer<ShiftsResource> _localizer = Substitute.For<IStringLocalizer<ShiftsResource>>();
     private readonly ILogger<ShiftAdminController> _logger = Substitute.For<ILogger<ShiftAdminController>>();
     private readonly IRotaCoordinatorMessageService _rotaMessenger = Substitute.For<IRotaCoordinatorMessageService>();
@@ -86,6 +86,49 @@ public class ShiftAdminControllerTests
         _shiftMgmt.GetTagsAsync().Returns([]);
         _shiftMgmt.GetStaffingSnapshotAsync(Event.Id, TeamId).Returns(ShiftStaffingSnapshot.Empty);
         _shiftMgmt.GetRotasByDepartmentAsync(TeamId, Event.Id).Returns([]);
+    }
+
+    [HumansTheory]
+    [InlineData("Staffing", false)]
+    [InlineData("Staffing", true)]
+    [InlineData("Generation", false)]
+    [InlineData("Generation", true)]
+    public async Task Generation_RejectsMalformedBindings_ButAcceptsValidDefaults(string action, bool malformed)
+    {
+        var staffing = string.Equals(action, "Staffing", StringComparison.Ordinal);
+        var rotaId = Guid.NewGuid();
+        _shiftMgmt.CreateBuildStrikeShiftsAsync(Arg.Any<ConfigureBuildStrikeStaffingInput>())
+            .Returns(ShiftGenerationResult.Success("Created", 1));
+        _shiftMgmt.GenerateEventShiftsAsync(Arg.Any<GenerateEventShiftsInput>())
+            .Returns(ShiftGenerationResult.Success("Created", 1));
+        var controller = BuildSut();
+        if (malformed)
+            controller.ModelState.AddModelError(staffing ? "Days[0].MinVolunteers" : "StartDayOffset",
+                "Not a number.");
+
+        var result = staffing
+            ? await controller.ConfigureStaffing(Slug, rotaId,
+                new StaffingGridModel { Days = [new DayStaffingEntry { DayOffset = -1 }] })
+            : await controller.GenerateShifts(Slug, rotaId,
+                new GenerateEventShiftsModel { StartDayOffset = 0, EndDayOffset = 0, TimeSlots = [new TimeSlotEntry()] });
+
+        if (malformed)
+        {
+            result.Should().BeOfType<BadRequestObjectResult>();
+            await _shiftMgmt.DidNotReceive().CreateBuildStrikeShiftsAsync(Arg.Any<ConfigureBuildStrikeStaffingInput>());
+            await _shiftMgmt.DidNotReceive().GenerateEventShiftsAsync(Arg.Any<GenerateEventShiftsInput>());
+        }
+        else
+        {
+            result.Should().BeOfType<RedirectToActionResult>();
+            if (staffing)
+                await _shiftMgmt.Received(1).CreateBuildStrikeShiftsAsync(Arg.Is<ConfigureBuildStrikeStaffingInput>(
+                    input => input.RotaId == rotaId && input.TeamId == TeamId
+                        && input.Days.Single().DayOffset == -1 && input.Days.Single().MinVolunteers == 2));
+            else
+                await _shiftMgmt.Received(1).GenerateEventShiftsAsync(Arg.Is<GenerateEventShiftsInput>(
+                    input => input.RotaId == rotaId && input.TeamId == TeamId && input.StartDayOffset == 0));
+        }
     }
 
     [HumansTheory]
@@ -428,7 +471,7 @@ public class ShiftAdminControllerTests
             _userService,
             Substitute.For<IAuthorizationService>(),
             Substitute.For<IClock>(),
-            new ShiftAdminPageBuilder(_shiftMgmt, Substitute.For<IMembershipCalculatorRead>(), _userService, _teamService),
+            new ShiftAdminPageBuilder(_shiftMgmt, Substitute.For<IMembershipCalculator>(), _userService, _teamService),
             new ShiftVolunteerSearchBuilder(_burnSettings, _userService, _shiftView, _signupService, _tracking),
             _rotaMessenger,
             _logger,

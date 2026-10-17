@@ -27,7 +27,7 @@ internal sealed class TeamService(
     ITeamRepository repo,
     IAuditLogService auditLogService,
     INotificationEmitter notificationService,
-    IShiftManagementServiceRead shiftManagementService,
+    IShiftManagementService shiftManagementService,
     INotificationMeterCacheInvalidator notificationMeterInvalidator,
     IShiftAuthorizationInvalidator shiftAuthInvalidator,
     IAdminAuthorizationService adminAuthorization,
@@ -47,12 +47,12 @@ internal sealed class TeamService(
     internal const string TeamJoinRequests = "TeamJoinRequests";
     internal const string TeamEarlyEntry = "TeamEarlyEntry";
 
-    // Lazy resolution — UserService injects ITeamService, closing the cycle.
-    private ITeamResourceServiceRead TeamResourceService
-        => serviceProvider.GetRequiredService<ITeamResourceServiceRead>();
+    // Lazy resolution — UserService injects ITeamManagement, closing the cycle.
+    private ITeamResourceService TeamResourceService
+        => serviceProvider.GetRequiredService<ITeamResourceService>();
 
-    private IRoleAssignmentServiceRead RoleAssignmentService
-        => serviceProvider.GetRequiredService<IRoleAssignmentServiceRead>();
+    private IRoleAssignmentService RoleAssignmentService
+        => serviceProvider.GetRequiredService<IRoleAssignmentService>();
 
     private IEmailService EmailService
         => serviceProvider.GetRequiredService<IEmailService>();
@@ -63,14 +63,14 @@ internal sealed class TeamService(
     private ISystemTeamSync SystemTeamSync
         => serviceProvider.GetRequiredService<ISystemTeamSync>();
 
-    private IUserServiceRead UserService
-        => serviceProvider.GetRequiredService<IUserServiceRead>();
+    private IUserService UserService
+        => serviceProvider.GetRequiredService<IUserService>();
 
     private IGoogleSyncOutboxService GoogleSyncOutboxService
         => serviceProvider.GetRequiredService<IGoogleSyncOutboxService>();
 
-    private IGoogleSyncService GoogleSyncService
-        => serviceProvider.GetRequiredService<IGoogleSyncService>();
+    private IGoogleSyncWrite GoogleSyncService
+        => serviceProvider.GetRequiredService<IGoogleSyncWrite>();
 
     public async Task<Team> CreateTeamAsync(
         string name,
@@ -183,7 +183,7 @@ internal sealed class TeamService(
         throw new NotSupportedException(
             "Team search runs against the cached TeamInfo snapshot in CachingTeamService. " +
             "If this is being called on the inner TeamService it indicates a DI registration " +
-            "mistake — ITeamServiceRead must resolve to the caching decorator.");
+            "mistake — ITeamService must resolve to the caching decorator.");
 
     public async Task<IReadOnlyCollection<Guid>> GetEffectiveBudgetCoordinatorTeamIdsAsync(
         Guid userId, CancellationToken cancellationToken = default)
@@ -1387,6 +1387,7 @@ internal sealed class TeamService(
         if (team.IsSystemTeam)
             throw new InvalidOperationException("Cannot add members to system teams manually");
 
+        targetUserId = await ResolveMembershipTargetAsync(targetUserId, cancellationToken);
         var isExisting = await repo.IsActiveMemberAsync(teamId, targetUserId, cancellationToken);
         if (isExisting)
             throw new InvalidOperationException("User is already a member of this team");
@@ -1796,6 +1797,7 @@ internal sealed class TeamService(
         if (!canManage)
             throw new InvalidOperationException("User does not have permission to manage role assignments for this team");
 
+        targetUserId = await ResolveMembershipTargetAsync(targetUserId, cancellationToken);
         var existingMember = await repo.FindActiveMemberForMutationAsync(definition.TeamId, targetUserId, cancellationToken);
         var now = clock.GetCurrentInstant();
 
@@ -2396,6 +2398,14 @@ internal sealed class TeamService(
         definition.IsManagement &&
         definition.Team.SystemTeamType == SystemTeamType.None;
 #pragma warning restore CS0618
+
+    private async Task<Guid> ResolveMembershipTargetAsync(Guid userId, CancellationToken ct)
+    {
+        var user = await UserService.GetUserInfoAsync(userId, ct);
+        if (user is null || user.IsTombstone)
+            throw new InvalidOperationException("Cannot add a missing, deleted or merged account to a team.");
+        return user.Id;
+    }
 
     private async Task<GoogleSyncOutboxEvent?> BuildOutboxEventAsync(
         Guid teamMemberId,

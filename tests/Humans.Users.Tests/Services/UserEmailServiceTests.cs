@@ -18,8 +18,8 @@ public class UserEmailServiceTests
 {
     private readonly IUserRepository _repository = Substitute.For<IUserRepository>();
     private readonly IAccountMergeService _mergeService = Substitute.For<IAccountMergeService>();
-    private readonly IUserServiceInternal _userService = Substitute.For<IUserServiceInternal>();
-    private readonly ITicketServiceRead _ticketServiceRead = Substitute.For<ITicketServiceRead>();
+    private readonly IUserManagement _userService = Substitute.For<IUserManagement>();
+    private readonly ITicketService _ticketService = Substitute.For<ITicketService>();
     private readonly UserManager<User> _userManager;
     private readonly FakeClock _clock = new(Instant.FromUtc(2026, 4, 21, 12, 0));
     private readonly IUserInfoInvalidator _userInfoInvalidator = Substitute.For<IUserInfoInvalidator>();
@@ -34,11 +34,11 @@ public class UserEmailServiceTests
             store, null, null, null, null, null, null, null, null);
         // Default: user holds no ticket-linked emails, so the ticket-linked delete
         // guard is a no-op unless a test overrides GetTicketOrdersAsync.
-        _ticketServiceRead.GetTicketOrdersAsync(Arg.Any<CancellationToken>())
+        _ticketService.GetTicketOrdersAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<TicketOrderInfo>>([]));
         _serviceProvider = new ServiceLocatorBuilder()
             .With(_mergeService)
-            .With(_ticketServiceRead)
+            .With(_ticketService)
             .Build();
 
         _service = new UserEmailService(
@@ -377,7 +377,7 @@ public class UserEmailServiceTests
             volunteerHistory: [],
             communicationPreferences: []);
 
-    // Stub IUserServiceInternal to expose the given UserEmail rows through the GetAllUserInfosAsync iteration.
+    // Stub IUserManagement to expose the given UserEmail rows through the GetAllUserInfosAsync iteration.
     private void StubAllUserInfosFromRows(IReadOnlyList<UserEmail> rows)
     {
         var infos = rows.GroupBy(r => r.UserId)
@@ -662,7 +662,7 @@ public class UserEmailServiceTests
             .Returns(ticketEmail);
         _repository.GetUserEmailsByUserIdForMutationAsync(userId, Arg.Any<CancellationToken>())
             .Returns(new List<UserEmail> { ticketEmail, primary });
-        _ticketServiceRead.GetTicketOrdersAsync(Arg.Any<CancellationToken>())
+        _ticketService.GetTicketOrdersAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<TicketOrderInfo>>([
                 new TicketOrderInfo(
                     Guid.NewGuid(),
@@ -1143,8 +1143,10 @@ public class UserEmailServiceTests
         violations.Should().BeEmpty();
     }
 
-    [HumansFact]
-    public async Task UnlinkAsync_RemovesAspNetUserLoginsAndEmailRow()
+    [HumansTheory]
+    [Xunit.InlineData(false)]
+    [Xunit.InlineData(true)]
+    public async Task UnlinkAsync_RemovesAspNetUserLoginsAndEmailRow(bool disconnectedAfterIdentityRemoval)
     {
         // Provider-attached row is removed from both the AspNetUserLogins table
         // (via UserManager.RemoveLoginAsync) and user_emails (via _repo.RemoveUserEmailAsync).
@@ -1162,21 +1164,40 @@ public class UserEmailServiceTests
             IsVerified = true,
         };
         var user = new User { Id = userId };
-        _repository.GetUserEmailByIdAndUserIdAsync(rowId, userId, Arg.Any<CancellationToken>())
-            .Returns(row);
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(Xunit.TestContext.Current.CancellationToken);
+        var rows = new List<UserEmail>
+        {
+            row,
+            new() { Id = Guid.NewGuid(), UserId = userId, Email = "other@example.com", IsVerified = true }
+        };
+        _repository.GetUserEmailByIdAndUserIdAsync(rowId, userId, Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            call.Arg<CancellationToken>().ThrowIfCancellationRequested();
+            return rows.FirstOrDefault(r => r.Id == rowId);
+        });
         // Another verified row remains, so the last-sign-in-method guard passes.
-        _repository.GetUserEmailsByUserIdForMutationAsync(userId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<UserEmail>>([
-                row,
-                new UserEmail { Id = Guid.NewGuid(), UserId = userId, Email = "other@example.com", IsVerified = true },
-            ]));
+        _repository.GetUserEmailsByUserIdForMutationAsync(userId, Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            call.Arg<CancellationToken>().ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<UserEmail>>(rows);
+        });
+        _repository.RemoveUserEmailAsync(row, Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            call.Arg<CancellationToken>().ThrowIfCancellationRequested();
+            rows.Remove(row);
+            return Task.CompletedTask;
+        });
         _userManager.FindByIdAsync(userId.ToString()).Returns(user);
-        _userManager.RemoveLoginAsync(user, "Google", "sub-Z")
-            .Returns(IdentityResult.Success);
+        _userManager.RemoveLoginAsync(user, "Google", "sub-Z").Returns(async _ =>
+        {
+            if (disconnectedAfterIdentityRemoval) await request.CancelAsync();
+            return IdentityResult.Success;
+        });
 
-        var result = await _service.UnlinkAsync(userId, rowId, actorId, Xunit.TestContext.Current.CancellationToken);
+        var result = await _service.UnlinkAsync(userId, rowId, actorId, request.Token);
 
         result.Succeeded.Should().BeTrue();
+        rows.Should().ContainSingle().Which.Email.Should().Be("other@example.com");
         await _userManager.Received(1).RemoveLoginAsync(user, "Google", "sub-Z");
         await _repository.Received(1).RemoveUserEmailAsync(row, Arg.Any<CancellationToken>());
         await _userInfoInvalidator.Received(1).InvalidateAsync(userId, Arg.Any<CancellationToken>(), Arg.Any<string>(), Arg.Any<string>());

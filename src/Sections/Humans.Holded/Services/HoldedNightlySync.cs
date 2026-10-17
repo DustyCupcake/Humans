@@ -1,4 +1,3 @@
-using Humans.Base.Attributes;
 using Humans.Finance.Contracts;
 using Humans.Holded.Contracts;
 using Microsoft.Extensions.Options;
@@ -9,9 +8,8 @@ namespace Humans.Holded.Services;
 /// Nightly Holded pull wrapper. It calls through to Finance for doc sync before running the local
 /// ledger mirror pass.
 /// </summary>
-[CrossSectionWrite("Runs Finance's Holded doc sync side-effect as part of the Holded nightly pull.")]
 internal sealed class HoldedNightlySync(
-    IHoldedFinanceService finance,
+    IHoldedFinanceWrite finance,
     IHoldedService holded,
     IOptions<HoldedClientOptions> holdedOptions,
     ILogger<HoldedNightlySync> logger) : IHoldedNightlySync

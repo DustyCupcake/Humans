@@ -42,14 +42,14 @@ public sealed class LegalDocumentSyncRunnerTests
         var other = MakeDocument("Other required", true);
         var optional = MakeDocument("Own optional", false);
         optional.TeamId = own.TeamId;
-        var sync = Substitute.For<ILegalDocumentSyncService>();
+        var sync = Substitute.For<ILegalDocumentSyncManagement>();
         sync.SyncAllDocumentsAsync(Arg.Any<CancellationToken>()).Returns(new[] { own, other, optional });
-        var teams = Substitute.For<ITeamServiceRead>();
+        var teams = Substitute.For<ITeamService>();
         teams.GetTeamAsync(own.TeamId, Arg.Any<CancellationToken>()).Returns(new TeamInfo(
             own.TeamId, "Own", null, "own", true, false, SystemTeamType.None, false,
             false, false, false, default,
             [new TeamMemberInfo(Guid.NewGuid(), user.Id, "Member", user.Email, null, TeamMemberRole.Member, default)]));
-        var users = Substitute.For<IUserServiceRead>();
+        var users = Substitute.For<IUserService>();
         users.GetUserInfosAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<Guid, UserInfo> { [user.Id] = user });
         var repository = Substitute.For<IConsentRepository>();
@@ -87,12 +87,12 @@ public sealed class LegalDocumentSyncRunnerTests
     [HumansFact]
     public async Task Sync_OptionalUpdate_DoesNotResolveRecipientsOrSendConsentEmail()
     {
-        var sync = Substitute.For<ILegalDocumentSyncService>();
+        var sync = Substitute.For<ILegalDocumentSyncManagement>();
         sync.SyncAllDocumentsAsync(Arg.Any<CancellationToken>()).Returns(new[] { MakeDocument("Optional", false) });
-        var teams = Substitute.For<ITeamServiceRead>();
+        var teams = Substitute.For<ITeamService>();
         var email = Substitute.For<IEmailService>();
         var runner = new LegalDocumentSyncRunner(sync, email, TestConsentEmails.Create(), teams,
-            Substitute.For<IUserServiceRead>(), Substitute.For<IConsentRepository>(),
+            Substitute.For<IUserService>(), Substitute.For<IConsentRepository>(),
             NullLogger<LegalDocumentSyncRunner>.Instance);
 
         await runner.SyncAndNotifyAsync(TestContext.Current.CancellationToken);

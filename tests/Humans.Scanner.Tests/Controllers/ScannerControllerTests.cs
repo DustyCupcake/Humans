@@ -22,21 +22,21 @@ namespace Humans.Scanner.Tests.Controllers;
 public class ScannerControllerTests
 {
     private static ScannerController NewController(
-        ITicketServiceRead tickets,
-        IUserServiceRead? users = null,
+        ITicketService tickets,
+        IUserService? users = null,
         IEarlyEntryService? earlyEntry = null,
-        IConsentServiceRead? consents = null,
+        IConsentService? consents = null,
         IICalFeedService? calendarFeed = null,
-        IEventServiceRead? events = null,
+        IEventService? events = null,
         ISettingsService? burnSettings = null)
     {
         var ctrl = new ScannerController(
             tickets,
-            users ?? Substitute.For<IUserServiceRead>(),
+            users ?? Substitute.For<IUserService>(),
             earlyEntry ?? Substitute.For<IEarlyEntryService>(),
-            consents ?? Substitute.For<IConsentServiceRead>(),
+            consents ?? Substitute.For<IConsentService>(),
             calendarFeed ?? Substitute.For<IICalFeedService>(),
-            events ?? Substitute.For<IEventServiceRead>(),
+            events ?? Substitute.For<IEventService>(),
             burnSettings ?? Substitute.For<ISettingsService>());
 
         var services = new ServiceCollection();
@@ -51,9 +51,9 @@ public class ScannerControllerTests
         return ctrl;
     }
 
-    private static ITicketServiceRead TicketsWithAttendee(TicketAttendeeInfo attendee, bool isCurrentEvent = true)
+    private static ITicketService TicketsWithAttendee(TicketAttendeeInfo attendee, bool isCurrentEvent = true)
     {
-        var tickets = Substitute.For<ITicketServiceRead>();
+        var tickets = Substitute.For<ITicketService>();
         tickets.FindCurrentEventAttendeeByBarcodeAsync(attendee.Barcode, Arg.Any<CancellationToken>())
             .Returns(isCurrentEvent ? attendee : null);
         return tickets;
@@ -209,7 +209,7 @@ public class ScannerControllerTests
     {
         var userId = Guid.NewGuid();
         var start = Instant.FromUtc(2026, 6, 18, 6, 0);
-        var events = Substitute.For<IEventServiceRead>();
+        var events = Substitute.For<IEventService>();
         events.GetApprovedEventsAsync(null, null, null, null, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(new[]
             {
@@ -231,8 +231,8 @@ public class ScannerControllerTests
     {
         var tickets = TicketsWithAttendee(Attendee(matchedUserId: null));
         var earlyEntry = Substitute.For<IEarlyEntryService>();
-        var consents = Substitute.For<IConsentServiceRead>();
-        var users = Substitute.For<IUserServiceRead>();
+        var consents = Substitute.For<IConsentService>();
+        var users = Substitute.For<IUserService>();
         var ctrl = NewController(tickets, users: users, earlyEntry: earlyEntry, consents: consents);
 
         var result = await ctrl.Card("xyz34Qy5", Xunit.TestContext.Current.CancellationToken);
@@ -260,14 +260,14 @@ public class ScannerControllerTests
         earlyEntry.GetForUserAsync(userId, Arg.Any<CancellationToken>())
             .Returns(new EarlyEntryRosterRow(userId, new LocalDate(2026, 6, 15), ["Teams: Gate"], false));
 
-        var consents = Substitute.For<IConsentServiceRead>();
+        var consents = Substitute.For<IConsentService>();
         consents.GetPendingDocumentNamesAsync(userId, Arg.Any<CancellationToken>())
             .Returns(new[] { "Liability Waiver" });
 
         var burnSettings = Substitute.For<ISettingsService>();
         burnSettings.GetActiveEventSettingsAsync(Arg.Any<CancellationToken>()).Returns(ActiveBurn());
 
-        var users = Substitute.For<IUserServiceRead>();
+        var users = Substitute.For<IUserService>();
         users.GetUserInfoAsync(userId, Arg.Any<CancellationToken>()).Returns(UserInfo.Create(
             new User { Id = userId, PreferredLanguage = "en" },
             [],
@@ -298,7 +298,7 @@ public class ScannerControllerTests
         calendarFeed.GetFeedItemsAsync(userId, Arg.Any<CancellationToken>())
             .Returns(new[] { shiftItem, favouritedItem });
 
-        var events = Substitute.For<IEventServiceRead>();
+        var events = Substitute.For<IEventService>();
         events.GetApprovedEventsAsync(null, null, null, null, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(new[]
             {
@@ -340,7 +340,7 @@ public class ScannerControllerTests
     {
         var userId = Guid.NewGuid();
         var tickets = TicketsWithAttendee(Attendee(userId));
-        var consents = Substitute.For<IConsentServiceRead>();
+        var consents = Substitute.For<IConsentService>();
         consents.GetPendingDocumentNamesAsync(userId, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<string>());
 

@@ -16,8 +16,8 @@ namespace Humans.Email.Controllers;
 [Authorize]
 [Route("Email")]
 internal sealed class EmailPreviewController(
-    IUserServiceRead userService,
-    IEmailPreviewService emailPreviews,
+    IUserService userService,
+    IEmailPreviewManagement emailPreviews,
     ComposerSelfSendService selfSend) : ApiControllerBase(userService)
 {
     /// <summary>Named rate-limit policy for <see cref="SendMarkdownToSelf"/>, registered in <c>Section</c>.</summary>

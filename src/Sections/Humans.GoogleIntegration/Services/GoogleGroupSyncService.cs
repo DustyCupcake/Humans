@@ -1,4 +1,3 @@
-using Humans.Base.Attributes;
 using Humans.GoogleIntegration.Contracts;
 using Humans.AuditLog.Contracts;
 using Humans.Users.Contracts;
@@ -11,15 +10,15 @@ using Humans.GoogleIntegration.Services.Workspace;
 
 namespace Humans.GoogleIntegration.Services;
 
-[CrossSectionWrite("Group sync writes Google email status back to the user.")]
 internal sealed class GoogleGroupSyncService(
     IEnumerable<IGoogleGroupMembershipSource> sources,
     IGoogleGroupMembershipClient membershipClient,
     IGoogleGroupProvisioningClient provisioningClient,
     ITeamResourceGoogleClient teamResourceClient,
-    ITeamResourceService teamResourceService,
-    ITeamServiceRead teamService,
+    ITeamResourceManagement teamResourceService,
+    ITeamService teamService,
     IUserService userService,
+    IUserWrite userWrite,
     IUserEmailService userEmailService,
     ISyncSettingsService syncSettingsService,
     IAuditLogService auditLogService,
@@ -434,7 +433,7 @@ internal sealed class GoogleGroupSyncService(
                 if (failure.RejectTarget)
                 {
                     var target = plan.ExpectedByEmail[member.Email];
-                    await userService.TrySetGoogleEmailStatusFromSyncAsync(
+                    await userWrite.TrySetGoogleEmailStatusFromSyncAsync(
                         target.UserId, GoogleEmailStatus.Rejected, ct, target.GoogleEmailId);
                     logger.LogWarning(
                         "Google rejected target member email {Email} while adding to Google Group {GroupKey} ({GroupId}) - HTTP {StatusCode}. " +

@@ -28,8 +28,8 @@ internal sealed class SectionThingsToDo : ISectionThingsToDo
 
         var localizer = services.GetRequiredService<IStringLocalizer<SharedResource>>();
         var logger = services.GetRequiredService<ILogger<SectionThingsToDo>>();
-        var profile = (await services.GetRequiredService<IUserServiceRead>().GetUserInfoAsync(userId))?.Profile;
-        var isVolunteerMember = (await services.GetRequiredService<IMembershipCalculatorRead>()
+        var profile = (await services.GetRequiredService<IUserService>().GetUserInfoAsync(userId))?.Profile;
+        var isVolunteerMember = (await services.GetRequiredService<IMembershipCalculator>()
             .GetMembershipSnapshotAsync(userId)).IsVolunteerMember;
 
         var entries = new List<ThingsToDoEntry> { await ProfileEntryAsync(services, localizer, profile, userId) };
@@ -107,7 +107,7 @@ internal sealed class SectionThingsToDo : ISectionThingsToDo
 
         try
         {
-            var hasQualifyingSignup = await services.GetRequiredService<IShiftManagementServiceRead>()
+            var hasQualifyingSignup = await services.GetRequiredService<IShiftManagementService>()
                 .HasQualifyingCantinaSignupAsync(userId);
             var descriptionKey = hasQualifyingSignup
                 ? "Todo_DietaryMedical_Pending"

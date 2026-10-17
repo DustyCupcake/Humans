@@ -11,14 +11,14 @@ using Humans.Users.Contracts;
 namespace Humans.Budget.Services;
 
 /// <summary>
-/// Budget service. Cross-section reads (teams) via ITeamServiceRead. budget_audit_logs is append-only (§12).
+/// Budget service. Cross-section reads (teams) via ITeamService. budget_audit_logs is append-only (§12).
 /// </summary>
 internal sealed class BudgetService(
     IBudgetRepository repository,
-    ITeamServiceRead teamService,
-    IUserServiceRead userService,
+    ITeamService teamService,
+    IUserService userService,
     IClock clock,
-    ILogger<BudgetService> logger) : IBudgetService, IUserDataContributor
+    ILogger<BudgetService> logger) : IBudgetManagement, IUserDataContributor
 {
     /// <summary>GDPR export JSON key for this contributor's data.</summary>
     internal const string BudgetAuditLog = "BudgetAuditLog";
@@ -530,38 +530,8 @@ internal sealed class BudgetService(
             e.OccurredAt)).ToList();
     }
 
-    public async Task<HashSet<Guid>> GetEffectiveCoordinatorTeamIdsAsync(Guid userId)
-    {
-        // Department-scoped budget-coordinator policy, derived over the Teams read
-        // model (§2c): departments (ParentTeamId is null) where the user is a direct
-        // Coordinator or holds a management-role assignment, plus every active child
-        // team of those departments. Mirrors TeamRepository
-        // .GetUserDepartmentCoordinatorTeamIdsAsync + .GetActiveChildIdsByParentsAsync.
-        var teamsById = await teamService.GetTeamsAsync();
-
-        var departments = teamsById.Values
-            .Where(t => t.ParentTeamId is null
-                && (t.Members.Any(m => m.UserId == userId && m.Role == TeamMemberRole.Coordinator)
-                    || t.ManagementRoleHolderUserIds?.Contains(userId) == true))
-            .Select(t => t.Id)
-            .ToHashSet();
-
-        if (departments.Count == 0)
-            return departments;
-
-        var result = new HashSet<Guid>(departments);
-        foreach (var team in teamsById.Values)
-        {
-            if (team.IsActive
-                && team.ParentTeamId is { } parentId
-                && departments.Contains(parentId))
-            {
-                result.Add(team.Id);
-            }
-        }
-
-        return result;
-    }
+    public async Task<HashSet<Guid>> GetEffectiveCoordinatorTeamIdsAsync(Guid userId) =>
+        (await teamService.GetEffectiveBudgetCoordinatorTeamIdsAsync(userId)).ToHashSet();
 
     public BudgetSummaryResult ComputeBudgetSummary(IReadOnlyList<BudgetGroupDetail> groups)
     {

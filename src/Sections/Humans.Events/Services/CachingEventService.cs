@@ -16,7 +16,7 @@ using Humans.Gdpr.Contracts;
 namespace Humans.Events.Services;
 
 /// <summary>
-/// Singleton caching decorator for <see cref="IEventService"/>. Owns
+/// Singleton caching decorator for <see cref="IEventManagement"/>. Owns
 /// four split projections — per-event <see cref="ApprovedEventView"/>,
 /// flat <see cref="EventCategoryView"/> list, flat <see cref="EventVenueView"/>
 /// list, and the <see cref="EventGuideSettingsView"/> singleton. Composes
@@ -27,9 +27,9 @@ namespace Humans.Events.Services;
 /// <para>
 /// Pattern mirrors <c>CachingTeamService</c>: dict hits are served from the
 /// in-memory snapshot; every write through this surface delegates to the
-/// inner <see cref="IEventService"/> then invalidates the affected slice.
+/// inner <see cref="IEventManagement"/> then invalidates the affected slice.
 /// No <c>SaveChangesInterceptor</c> — every event_* write flows through
-/// <see cref="IEventService"/> by design, enforced by the
+/// <see cref="IEventManagement"/> by design, enforced by the
 /// universal <c>HUM0025</c> analyzer (only <c>EventRepository</c> references the Event DbSets).
 /// </para>
 /// <para>
@@ -41,10 +41,10 @@ namespace Humans.Events.Services;
 internal sealed class CachingEventService(
     IServiceScopeFactory scopeFactory,
     ILogger<CachingEventService> logger)
-    : IEventService, IEventViewInvalidator, IUserDataContributor, IEventSettingsChangeListener, IHostedService
+    : IEventManagement, IUserDataContributor, IEventSettingsChangeListener, IHostedService
 {
     /// <summary>
-    /// DI service key under which the undecorated inner <see cref="IEventService"/>
+    /// DI service key under which the undecorated inner <see cref="IEventManagement"/>
     /// is registered. The Singleton decorator resolves the Scoped inner via
     /// <see cref="IServiceScopeFactory"/> per-call.
     /// </summary>
@@ -447,13 +447,9 @@ internal sealed class CachingEventService(
         // counts that the approved-only cache cannot answer.
         WithInner(inner => inner.GetAllEventsForDashboardAsync(ct));
 
-    public Task<ApprovedEventsExportInfo> GetApprovedEventsForExportAsync(CancellationToken ct = default) =>
-        WithInner(inner => inner.GetApprovedEventsForExportAsync(ct));
-
-    // ── IEventViewInvalidator — in-section invalidation hook (no caller) ──
-
-    public Task InvalidateGuideSettingsAsync(CancellationToken ct = default) =>
-        MutateAsync(() => RefreshSettingsAsync(ct));
+    public Task<byte[]> GetApprovedEventsForExportAsync(Guid actorUserId, CancellationToken ct = default) =>
+        // Every CSV disclosure must audit, including repeated downloads of unchanged data.
+        WithInner(inner => inner.GetApprovedEventsForExportAsync(actorUserId, ct));
 
     // ── IEventSettingsChangeListener: Settings-side fan-out ──
 
@@ -675,17 +671,17 @@ internal sealed class CachingEventService(
         }
     }
 
-    private async Task<T> WithInner<T>(Func<IEventService, Task<T>> work)
+    private async Task<T> WithInner<T>(Func<IEventManagement, Task<T>> work)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var inner = scope.ServiceProvider.GetRequiredKeyedService<IEventService>(InnerServiceKey);
+        var inner = scope.ServiceProvider.GetRequiredKeyedService<IEventManagement>(InnerServiceKey);
         return await work(inner);
     }
 
-    private async Task WithInner(Func<IEventService, Task> work)
+    private async Task WithInner(Func<IEventManagement, Task> work)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var inner = scope.ServiceProvider.GetRequiredKeyedService<IEventService>(InnerServiceKey);
+        var inner = scope.ServiceProvider.GetRequiredKeyedService<IEventManagement>(InnerServiceKey);
         await work(inner);
     }
 }

@@ -1,6 +1,5 @@
 using Humans.AuditLog.Contracts;
 using Humans.Base.Interfaces;
-using Humans.Base.Attributes;
 using Humans.Expenses.Contracts;
 using Humans.Expenses.Data;
 using Humans.Expenses.Domain;
@@ -12,19 +11,19 @@ using NodaTime;
 namespace Humans.Expenses.Services;
 
 /// <summary>Drains the expense outbox, preserving retries and permanent-failure audits.</summary>
-[CrossSectionWrite("Publishes expense documents and creditor bindings through the existing Holded publisher.")]
 internal sealed class ExpenseReportBackgroundProcessor(
     IExpenseRepository repo,
     IFileStorage fileStorage,
-    IUserServiceRead userService,
+    IUserService userService,
     IHoldedClient holdedClient,
     IHoldedFinanceService holdedFinance,
+    IHoldedFinanceWrite holdedFinanceWrite,
     IAuditLogService auditLogService,
     IClock clock,
     ILogger<ExpenseReportBackgroundProcessor> logger) : IExpenseReportBackgroundProcessor, IApplicationService
 {
     private readonly ExpenseHoldedPublisher holdedPublisher = new(
-        repo, fileStorage, userService, holdedClient, holdedFinance, auditLogService, logger);
+        repo, fileStorage, userService, holdedClient, holdedFinance, holdedFinanceWrite, auditLogService, logger);
 
     /// <summary>
     /// Attempts a Holded push gets before it is written off. With the 2^n-minute backoff below,

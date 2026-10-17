@@ -20,9 +20,9 @@ namespace Humans.CityPlanning.Tests;
 
 public sealed class CityPlanningServiceTests : CityPlanningTestBase
 {
-    private readonly ICampServiceRead _campService;
-    private readonly ITeamServiceRead _teamService;
-    private readonly IUserServiceRead _userService;
+    private readonly ICampService _campService;
+    private readonly ITeamService _teamService;
+    private readonly IUserService _userService;
     private readonly IAuditLogService _auditLog;
     private readonly CityPlanningService _sut;
     private readonly CityPlanningOptions _options = new() { CityPlanningTeamSlug = "city-planning" };
@@ -30,9 +30,9 @@ public sealed class CityPlanningServiceTests : CityPlanningTestBase
     public CityPlanningServiceTests()
         : base(Instant.FromUtc(2026, 3, 15, 12, 0, 0))
     {
-        _campService = Substitute.For<ICampServiceRead>();
-        _teamService = Substitute.For<ITeamServiceRead>();
-        _userService = Substitute.For<IUserServiceRead>();
+        _campService = Substitute.For<ICampService>();
+        _teamService = Substitute.For<ITeamService>();
+        _userService = Substitute.For<IUserService>();
         _auditLog = Substitute.For<IAuditLogService>();
         var repo = new CityPlanningRepository(CityPlanningDbFactory);
         _sut = new CityPlanningService(

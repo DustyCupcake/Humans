@@ -34,10 +34,10 @@ internal sealed record VolunteerSearchBuildResult(
 
 internal sealed class ShiftVolunteerSearchBuilder(
     IBurnSettingsService burnSettings,
-    IUserServiceRead userService,
+    IUserService userService,
     IShiftRowView shiftView,
     IShiftSignupService signupService,
-    IVolunteerTrackingService volunteerTrackingService)
+    IVolunteerTrackingManagement volunteerTrackingService)
 {
     public async Task<VolunteerSearchBuildResult> BuildForShiftAsync(
         Shift? shift,

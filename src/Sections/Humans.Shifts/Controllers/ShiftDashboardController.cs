@@ -18,9 +18,9 @@ namespace Humans.Shifts.Controllers;
 [Route("Shifts/Dashboard")]
 internal sealed class ShiftDashboardController(
     IBurnSettingsService burnSettings,
-    IShiftManagementService shiftMgmt,
+    IShiftManagement shiftMgmt,
     IShiftSignupService signupService,
-    IUserServiceRead userService,
+    IUserService userService,
     ShiftDashboardPageBuilder pageBuilder,
     ShiftVolunteerSearchBuilder volunteerSearchBuilder,
     ILogger<ShiftDashboardController> logger) : HumansControllerBase(userService)

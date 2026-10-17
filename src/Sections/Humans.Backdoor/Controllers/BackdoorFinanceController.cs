@@ -20,7 +20,7 @@ namespace Humans.Backdoor.Controllers;
 /// <summary>
 /// Read-only Backdoor export of expense reports, creditor bindings, the category map and SEPA
 /// transfers, for the agent doing the books who needs Humans' side of a Holded break
-/// (peterdrier/Humans#1838). Every action reuses an <c>*ServiceRead</c> method, sorts and formats.
+/// (peterdrier/Humans#1838). Every action reuses an <c>IHoldedFinanceService</c> method, sorts and formats.
 /// </summary>
 /// <remarks>
 /// Unlike Store, a key here does not read everything its owner's role permits without a check —
@@ -36,11 +36,11 @@ namespace Humans.Backdoor.Controllers;
 [Route("api/backdoor/finance")]
 [ServiceFilter(typeof(BackdoorApiKeyAuthFilter))]
 internal sealed class BackdoorFinanceController(
-    IExpenseReportServiceRead expenses,
-    IHoldedFinanceServiceRead finance,
-    IBudgetServiceRead budget,
+    IExpenseReportService expenses,
+    IHoldedFinanceService finance,
+    IBudgetService budget,
     IAuthorizationService authService,
-    IUserServiceRead users) : ApiControllerBase(users), IResultFilter
+    IUserService users) : ApiControllerBase(users), IResultFilter
 {
     // ─── Expense reports ────────────────────────────────────────────────────────
 

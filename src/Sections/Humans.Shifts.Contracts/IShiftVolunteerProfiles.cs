@@ -10,7 +10,7 @@ namespace Humans.Shifts.Contracts;
 /// (Governance's rule: a leaf keeps an honest name rather than a
 /// <c>Read</c> suffix over write members). The rest of the section's write
 /// surface — rotas, shifts, generation, event settings — has no external
-/// caller and stays on the internal <c>IShiftManagementService</c>.
+/// caller and stays on the internal <c>IShiftManagement</c>.
 ///
 /// <para>
 /// The read crosses the boundary as <see cref="ShiftVolunteerProfileInfo"/>,
@@ -22,7 +22,7 @@ public interface IShiftVolunteerProfiles
     /// <summary>
     /// Gets a user's shift profile (Skills / Quirks / Languages), or
     /// <c>null</c> when the user has none. Dietary and medical data moved to
-    /// Profile — read those via <c>IUserServiceRead</c>.
+    /// Profile — read those via <c>IUserService</c>.
     /// </summary>
     Task<ShiftVolunteerProfileInfo?> GetShiftProfileAsync(Guid userId);
 

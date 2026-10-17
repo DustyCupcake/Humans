@@ -15,11 +15,11 @@ namespace Humans.Consent.Services;
 /// (design §15 step 6b).
 /// </summary>
 internal sealed class LegalDocumentSyncRunner(
-    ILegalDocumentSyncService syncService,
+    ILegalDocumentSyncManagement syncService,
     IEmailService emailService,
     ConsentEmails emailMessages,
-    ITeamServiceRead teamService,
-    IUserServiceRead userService,
+    ITeamService teamService,
+    IUserService userService,
     IConsentRepository consentRepository,
     ILogger<LegalDocumentSyncRunner> logger) : ILegalDocumentSyncRunner
 {

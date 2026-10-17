@@ -18,8 +18,8 @@ public sealed class ContainerAuthorizationHandlerTests
     private static readonly Guid CampId = Guid.NewGuid();
     private static readonly Guid LeadUserId = Guid.NewGuid();
 
-    private readonly ICampServiceRead _campService = Substitute.For<ICampServiceRead>();
-    private readonly ICityPlanningServiceRead _cityPlanningService = Substitute.For<ICityPlanningServiceRead>();
+    private readonly ICampService _campService = Substitute.For<ICampService>();
+    private readonly ICityPlanningService _cityPlanningService = Substitute.For<ICityPlanningService>();
     private readonly ContainerAuthorizationHandler _handler;
 
     public ContainerAuthorizationHandlerTests()

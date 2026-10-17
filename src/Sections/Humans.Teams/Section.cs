@@ -44,8 +44,9 @@ public sealed class Section : ISection, IIssueQueueOwner
 
         services.AddSingleton<CachingTeamService>();
         services.AddSingleton<ITeamManagementService>(sp => sp.GetRequiredService<CachingTeamService>());
+        services.AddSingleton<ITeamManagement>(sp => sp.GetRequiredService<CachingTeamService>());
         services.AddSingleton<ITeamService>(sp => sp.GetRequiredService<CachingTeamService>());
-        services.AddSingleton<ITeamServiceRead>(sp => sp.GetRequiredService<CachingTeamService>());
+        services.AddSingleton<ITeamWrite>(sp => sp.GetRequiredService<CachingTeamService>());
         services.AddSingleton<ITeamSeeding>(sp => sp.GetRequiredService<CachingTeamService>());
         services.AddSingleton<IUserMerge>(sp => sp.GetRequiredService<CachingTeamService>());
         // Guid → display-name fan-out (nobodies-collective/Humans#1059).
@@ -79,6 +80,10 @@ public sealed class Section : ISection, IIssueQueueOwner
     // This section owns the issue queue its members' reports land in; Issues discovers
     // the seam rather than holding a list of sections (memory/architecture/section-contribution-seams.md).
     string IIssueQueueOwner.QueueKey => "Teams";
+
+    string IIssueQueueOwner.AreaLabelResourceKey => "Issues_Area_Teams";
+
+    IReadOnlyList<string> IIssueQueueOwner.PathSegments => ["teams"];
 
     IReadOnlyList<string> IIssueQueueOwner.OwningRoles => [RoleNames.TeamsAdmin];
 }

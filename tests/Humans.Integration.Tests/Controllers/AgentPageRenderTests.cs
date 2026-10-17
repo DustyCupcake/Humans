@@ -196,15 +196,17 @@ public class AgentPageRenderTests(HumansTestDatabase database) : IntegrationTest
     private async Task SetPreferredLanguageAsync(Guid userId, string culture, CancellationToken ct)
     {
         using var scope = Factory.Services.CreateScope();
-        var users = scope.ServiceProvider.GetRequiredService<IUserService>();
+        var users = scope.ServiceProvider.GetRequiredService<IUserWrite>();
         await users.SetPreferredLanguageAsync(userId, culture, ct);
     }
 
     private async Task EnableAgentAsync(CancellationToken ct)
     {
+        using var adminClient = Factory.CreateClient();
+        var actorUserId = await Factory.SignInAsFullyOnboardedAsync(adminClient, DevPersona.Admin);
         using var scope = Factory.Services.CreateScope();
         var settings = scope.ServiceProvider.GetRequiredService<IAgentSettingsService>();
-        await settings.UpdateAsync(s => s.Enabled = true, ct);
+        await settings.UpdateAsync(s => s.Enabled = true, actorUserId, ct);
     }
 
     private async Task<Guid> SeedConversationAsync(Guid userId, CancellationToken ct)

@@ -12,15 +12,15 @@ namespace Humans.Cantina.Tests;
 public class CantinaArchitectureTests
 {
     [HumansFact]
-    public void RosterServiceReadsOtherSectionsThroughReadInterfaces()
+    public void RosterServiceReadsOtherSectionsThroughPublicContracts()
     {
         // The invariants doc's load-bearing claim: the cantina never touches the Shifts
         // repository, and dietary comes off the cached UserInfo rather than an entity read.
         var paramTypes = typeof(CantinaRosterService).GetConstructors().Single()
             .GetParameters().Select(p => p.ParameterType).ToList();
 
-        paramTypes.Should().Contain(typeof(IShiftManagementServiceRead));
-        paramTypes.Should().Contain(typeof(IUserServiceRead));
+        paramTypes.Should().Contain(typeof(IShiftManagementService));
+        paramTypes.Should().Contain(typeof(IUserService));
     }
 
     [HumansFact]

@@ -18,17 +18,17 @@ namespace Humans.Consent.Tests.Services;
 /// </summary>
 public sealed class CachingConsentServiceTests
 {
-    private readonly IConsentService _inner = Substitute.For<IConsentService>();
-    private readonly ILegalDocumentSyncService _legalSync = Substitute.For<ILegalDocumentSyncService>();
+    private readonly IConsentManagement _inner = Substitute.For<IConsentManagement>();
+    private readonly ILegalDocumentSyncManagement _legalSync = Substitute.For<ILegalDocumentSyncManagement>();
     private readonly IClock _clock = Substitute.For<IClock>();
-    private readonly IUserServiceRead _userService = Substitute.For<IUserServiceRead>();
+    private readonly IUserService _userService = Substitute.For<IUserService>();
 
     private CachingConsentService CreateSut()
     {
         var services = new ServiceCollection();
-        services.AddKeyedScoped<IConsentService>(
+        services.AddKeyedScoped<IConsentManagement>(
             CachingConsentService.InnerServiceKey, (_, _) => _inner);
-        services.AddScoped<IUserServiceRead>(_ => _userService);
+        services.AddScoped<IUserService>(_ => _userService);
         var scopeFactory = services.BuildServiceProvider()
             .GetRequiredService<IServiceScopeFactory>();
         return new CachingConsentService(

@@ -39,8 +39,8 @@ namespace Humans.Store.Authorization;
 /// - Everyone else: deny.
 /// </summary>
 internal sealed class OrderAuthorizationHandler(
-    ICampServiceRead campService,
-    ITeamServiceRead teamService,
+    ICampService campService,
+    ITeamService teamService,
     ISettingsService settingsService,
     IClock clock) : IAuthorizationHandler
 {

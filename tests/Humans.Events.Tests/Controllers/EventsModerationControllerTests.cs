@@ -20,8 +20,8 @@ namespace Humans.Events.Tests.Controllers;
 
 public sealed class EventsModerationControllerTests
 {
-    private readonly IEventService _guide = Substitute.For<IEventService>();
-    private readonly IUserServiceRead _users = Substitute.For<IUserServiceRead>();
+    private readonly IEventManagement _guide = Substitute.For<IEventManagement>();
+    private readonly IUserService _users = Substitute.For<IUserService>();
 
     [HumansFact]
     public async Task Approve_pending_event_applies_the_approval_with_submitter_edit_url()
@@ -108,7 +108,7 @@ public sealed class EventsModerationControllerTests
                 [new Claim(ClaimTypes.NameIdentifier, moderatorId.ToString())], "test")),
         };
         var controller = new EventsModerationController(
-            _guide, _users, Substitute.For<ICampServiceRead>(),
+            _guide, _users, Substitute.For<ICampService>(),
             NullLogger<EventsModerationController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = http },

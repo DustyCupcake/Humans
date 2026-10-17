@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Resources;
 using Humans.Base.Extensions;
-using Humans.Base.Attributes;
 using Humans.GoogleIntegration.Contracts;
 using NodaTime;
 using Humans.Base.Interfaces;
@@ -23,23 +22,22 @@ namespace Humans.Users.Services;
 /// <remarks>
 /// The body of the nightly job (<c>Jobs/SuspendNonCompliantMembersJob.cs</c>).
 /// All reads/writes fan out through section services
-/// (<see cref="IUserService"/>, <see cref="ITeamServiceRead"/>,
+/// (<see cref="IUserManagement"/>, <see cref="ITeamService"/>,
 /// <see cref="IGoogleSyncService"/>) so this never touches another section's
 /// DbContext directly (design-rules §2c). Cross-cutting cache invalidation routes
 /// through invalidator interfaces
 /// (<see cref="IRoleAssignmentClaimsCacheInvalidator"/>,
 /// <see cref="IShiftAuthorizationInvalidator"/>) rather than IMemoryCache.
 /// </remarks>
-[CrossSectionWrite("Suspension removes the user from their team Google resources.")]
 internal sealed class NonCompliantMemberSuspension(
-    IUserServiceInternal userService,
-    ITeamServiceRead teamService,
+    IUserManagement userService,
+    ITeamService teamService,
     IActiveTeamsCacheInvalidator activeTeamsCacheInvalidator,
-    IMembershipCalculatorRead membershipCalculator,
+    IMembershipCalculator membershipCalculator,
     IEmailService emailService,
     UsersEmails emailMessages,
     INotificationEmitter notificationService,
-    IGoogleSyncService googleSyncService,
+    IGoogleSyncWrite googleSyncService,
     IAuditLogService auditLogService,
     IRoleAssignmentClaimsCacheInvalidator roleAssignmentClaimsInvalidator,
     IShiftAuthorizationInvalidator shiftAuthorizationInvalidator,
@@ -75,7 +73,7 @@ internal sealed class NonCompliantMemberSuspension(
             .GetUserInfosAsync(usersToSuspend, cancellationToken);
         var teamsById = await teamService.GetTeamsAsync(cancellationToken);
 
-        // Apply the suspension write through IUserService — returns the
+        // Apply the suspension write through IUserManagement — returns the
         // subset of user ids actually mutated (skips already-suspended /
         // profileless users).
         var suspendedIds = await userService

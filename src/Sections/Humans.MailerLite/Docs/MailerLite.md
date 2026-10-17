@@ -91,7 +91,7 @@ All routes are `AdminOnly`.
 
 ## Triggers
 
-- When admin commits an import → one `MailerLiteReconciliationCompleted` audit entry with counts (no PII).
+- When an admin commits an import → one `MailerLiteReconciliationCompleted` audit entry attributed to that admin, with counts (no PII), after the section’s sync state is saved.
 - When `ApplyAsync` flips `Marketing.OptedOut` → existing `CommunicationPreferenceChanged` audit fires through `CommunicationPreferenceService`.
 - When `ApplyAsync` creates a contact → existing `ContactCreated` audit through `AccountProvisioningService`.
 - When `MailerLiteAudienceSyncService.SyncAsync` runs (via the opt-in Hangfire job — `MailerLite:AudienceSyncCron`, unset by default — or the on-demand admin button) → one `MailerLiteAudienceSyncCompleted` audit entry with counts (no PII). Per-row ML mutations are not separately audited.
@@ -103,7 +103,7 @@ The section references the contracts leaves `Humans.Users.Contracts`,
 `Humans.AuditLog` (contracts in their `Contracts/` folders), plus `Humans.Base`. There is no Profiles reference: the email
 and communication-preference interfaces all live in `Humans.Users.Contracts`.
 
-- **Users — people**: `IUserServiceRead.GetAllUserInfosAsync` and `GetUserInfoAsync` over the
+- **Users — people**: `IUserService.GetAllUserInfosAsync` and `GetUserInfoAsync` over the
   cached `UserInfo` set. `MailerLiteAudienceBase` reads it to drop explicit Marketing
   opt-outs from *every* audience; `MarketingAudience` / `MarketingNoTicketAudience` read it
   to enumerate explicit opt-ins (`UserInfo.MarketingOptedOut == false`); the debug screen
@@ -117,7 +117,7 @@ and communication-preference interfaces all live in `Humans.Users.Contracts`.
   `UpdatePreferenceAsync`, `ResetPreferenceAsync` (writes, from the import apply).
 - **Users — provisioning**: `IAccountProvisioningService.FindOrCreateUserByEmailAsync` for creation and
   `ReplaceUnverifiedEmailAndProvisionAsync` for atomic replacement.
-- **Tickets**: `ITicketServiceRead.GetTicketOrdersAsync`, called once from
+- **Tickets**: `ITicketService.GetTicketOrdersAsync`, called once from
   `CurrentEventTicketHolders.ForCurrentEventAsync` — the single definition of the
   current-event ticket-holder set that `HasTicketAudience`, `MarketingNoTicketAudience` and
   `TicketNoShiftsAudience` all read.
@@ -138,5 +138,5 @@ and communication-preference interfaces all live in `Humans.Users.Contracts`.
 - **Cross-section surface** — none. The section is a leaf: `MailerLiteAudienceSyncJob` (`Jobs/`) is internal and calls `IMailerLiteAudienceSyncService.SyncAllAsync` as the actor-less scheduled run, contributed through `SectionJobs` like every other section's jobs. The dashboard stats, the import plan/apply pair and the whole `IMailerLiteService` surface are internal too.
 - **No resource set** — the admin pages are English operator copy with no `Localizer[…]` call; admin-only pages are exempt from localization ([`localization-admin-exempt`](../../../../memory/code/localization-admin-exempt.md)).
 - **Decorator decision** — no caching decorator. Rationale: admin-only, sequential, runs by hand; one DB count per dashboard load is fine at our scale. `MailerLiteClient` is a Singleton holding its own subscriber/group snapshot, refreshed only on demand.
-- **Cross-section calls** — `IUserEmailService`, `IAccountProvisioningService`, `ICommunicationPreferenceService`, `IUserServiceRead`, `ITicketServiceRead`, `IShiftView`, `IAuditLogService`.
+- **Cross-section calls** — `IUserEmailService`, `IAccountProvisioningService`, `ICommunicationPreferenceService`, `IUserService`, `ITicketService`, `IShiftView`, `IAuditLogService`.
 - **Architecture test** — `tests/Humans.MailerLite.Tests/Architecture/MailerLiteArchitectureTests.cs` pins: namespace, allowed-write surface on `IMailerLiteService`, audience group-name prefix + uniqueness, and (`EveryController_IsAdminOnly`) the admin-only policy — the pin CI runs. `MailerLiteClientWriteGuardTests` pins the runtime "Humans - " prefix guard; `MailerLitePageRenderTests` (in `Humans.Integration.Tests`, which CI does not run) checks that the section's own `_ViewImports` binds and that `/MailerLite/Admin/*` stays admin-only.

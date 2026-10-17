@@ -20,12 +20,12 @@ namespace Humans.Email.Tests;
 /// </summary>
 public sealed class EmailControllerPauseSettingsRedirectTests
 {
-    private readonly IEmailOutboxService _outbox = Substitute.For<IEmailOutboxService>();
+    private readonly IEmailOutboxManagement _outbox = Substitute.For<IEmailOutboxManagement>();
 
     private EmailController BuildSut()
     {
         var controller = new EmailController(
-            Substitute.For<IUserServiceRead>(), _outbox, Substitute.For<IAuditLogService>(),
+            Substitute.For<IUserService>(), _outbox, Substitute.For<IAuditLogService>(),
             NullLogger<EmailController>.Instance, Options.Create(new EmailSettings()));
         var http = new DefaultHttpContext
         {

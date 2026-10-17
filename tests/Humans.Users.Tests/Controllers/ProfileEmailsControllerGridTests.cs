@@ -53,7 +53,7 @@ public class ProfileEmailsControllerGridTests
     private readonly UsersEmails _emailMessages = TestUsersEmails.Create();
     private readonly IAuthorizationService _authorizationService = Substitute.For<IAuthorizationService>();
     private readonly IAuditLogService _auditLogService = Substitute.For<IAuditLogService>();
-    private readonly IUserServiceInternal _userService = Substitute.For<IUserServiceInternal>();
+    private readonly IUserManagement _userService = Substitute.For<IUserManagement>();
     private readonly UserManager<User> _userManager;
     private readonly SignInManager<User> _signInManager;
     private readonly ProfileEmailsController _controller;
@@ -97,7 +97,7 @@ public class ProfileEmailsControllerGridTests
             _logger,
             localizer,
             _sharedLocalizer,
-            Substitute.For<ITicketServiceRead>(),
+            Substitute.For<ITicketService>(),
             _authorizationService,
             _signInManager,
             Options.Create(new GoogleWorkspaceOptions()));
@@ -128,7 +128,7 @@ public class ProfileEmailsControllerGridTests
             .Returns(new User { Id = _userId });
         _userManager.GetUserId(Arg.Any<ClaimsPrincipal>()).Returns(_userId.ToString());
 
-        // GetCurrentUserInfoAsync helper reads through IUserServiceInternal; default
+        // GetCurrentUserInfoAsync helper reads through IUserManagement; default
         // stub returns a minimal UserInfo for the test user so the actions
         // continue past the null-guard. Per-test overrides can replace this.
         _userService.GetUserInfoAsync(_userId, Arg.Any<CancellationToken>())
@@ -225,7 +225,7 @@ public class ProfileEmailsControllerGridTests
             Options.Create(new LocalizationOptions()), NullLoggerFactory.Instance));
         var controller = new ProfileEmailsController(
             _userService, _userManager, _emailService, _emailMessages, _userEmailService,
-            _auditLogService, _logger, localizer, _sharedLocalizer, Substitute.For<ITicketServiceRead>(),
+            _auditLogService, _logger, localizer, _sharedLocalizer, Substitute.For<ITicketService>(),
             _authorizationService, _signInManager, Options.Create(new GoogleWorkspaceOptions()));
         var row = Guid.NewGuid();
         _userEmailService.VerifyEmailAsync(_userId, row, "token")
@@ -543,6 +543,46 @@ public class ProfileEmailsControllerGridTests
     }
 
     [HumansTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AdminAddEmail_CommittedAddition_AuditsBeforeQueueAndFinishesAfterDisconnect(bool queueFails)
+    {
+        var targetId = Guid.NewGuid();
+        const string email = "added@example.com";
+        var target = new User { Id = targetId, BurnerName = "Target", PreferredLanguage = "es" };
+        _userManager.FindByIdAsync(targetId.ToString()).Returns(target);
+        using var request = new CancellationTokenSource();
+        _userEmailService.AddEmailAsync(targetId, email, Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            call.Arg<CancellationToken>().Should().Be(request.Token);
+            if (!queueFails) await request.CancelAsync(); // The pending row has committed.
+            return new AddEmailResult(Guid.NewGuid(), "verification-token", false);
+        });
+        _userService.GetUserInfoAsync(targetId, Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            call.Arg<CancellationToken>().ThrowIfCancellationRequested();
+            return new ValueTask<UserInfo?>(target.ToUserInfo());
+        });
+        var auditRecordedAtQueue = false;
+        var failure = new IOException("Email queue unavailable");
+        _emailService.SendAsync(Arg.Any<EmailMessage>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            call.Arg<CancellationToken>().ThrowIfCancellationRequested();
+            auditRecordedAtQueue = _auditLogService.ReceivedCalls().Any();
+            return queueFails ? Task.FromException(failure) : Task.CompletedTask;
+        });
+        Func<Task<IActionResult>> act = () => _controller.AdminAddEmail(targetId, email, request.Token);
+
+        if (queueFails) (await act.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+        else (await act()).Should().BeOfType<RedirectToActionResult>();
+
+        auditRecordedAtQueue.Should().BeTrue();
+        await _auditLogService.Received(1).LogAsync(AuditAction.UserEmailAdded, nameof(User), targetId,
+            Arg.Any<string>(), _userId, relatedEntityId: null, relatedEntityType: null);
+        if (queueFails) _controller.TempData.Should().NotContainKey("SuccessMessage");
+    }
+
+    [HumansTheory]
     [InlineData("en", "en")]
     [InlineData("es", "es")]
     [InlineData("", "en")]
@@ -583,6 +623,7 @@ public class ProfileEmailsControllerGridTests
         await _emailService.Received(1).SendAsync(
             Arg.Is<EmailMessage>(m => m.TemplateName == TimeSensitiveTemplates.EmailVerification
                 && m.RecipientEmail == newEmail && m.RecipientName == "Target User"
+                && m.UserId == targetUserId
                 && m.HtmlBody.Contains(token, StringComparison.Ordinal)
                 && m.Subject.EndsWith($"#{expectedCulture}", StringComparison.Ordinal)),
             Arg.Any<CancellationToken>());
@@ -621,6 +662,7 @@ public class ProfileEmailsControllerGridTests
         await _emailService.Received(1).SendAsync(
             Arg.Is<EmailMessage>(m => m.TemplateName == TimeSensitiveTemplates.EmailVerification
                 && m.RecipientEmail == newEmail
+                && m.UserId == _userId
                 && m.HtmlBody.Contains(token, StringComparison.Ordinal)
                 && m.Subject.EndsWith($"#{expectedCulture}", StringComparison.Ordinal)),
             Arg.Any<CancellationToken>());

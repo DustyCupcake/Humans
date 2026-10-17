@@ -22,15 +22,15 @@ namespace Humans.Tickets.Services;
 internal sealed class TicketQueryService(
     ITicketRepository ticketRepository,
     ITicketTransferRepository ticketTransferRepository,
-    IBudgetServiceRead budgetService,
-    ICampaignServiceRead campaignService,
-    IUserServiceRead userService,
+    IBudgetService budgetService,
+    ICampaignService campaignService,
+    IUserService userService,
     IUserEmailService userEmailService,
-    ITeamServiceRead teamService,
+    ITeamService teamService,
     ISettingsService settingsService,
     ITicketCacheInvalidator cacheInvalidator,
     IAuditLogService auditLog,
-    IClock clock) : ITicketService, IUserDataContributor
+    IClock clock) : ITicketManagement, IUserDataContributor
 {
     private async Task<int> ComputeUserTicketCountAsync(Guid userId)
     {

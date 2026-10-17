@@ -26,11 +26,11 @@ Repository: `IFeedbackRepository`.
 |-----------|-----|------|-------|------------|
 | `FeedbackBadgeCount` | 2 min | yes | yes | yes (via `INavBadgeCacheInvalidator`) |
 
-Cross-section calls via `IUserServiceRead`, `IUserEmailService`,
-`ITeamServiceRead`, `IEmailService`, the section's own `FeedbackEmails`
+Cross-section calls via `IUserService`, `IUserEmailService`,
+`ITeamService`, `IEmailService`, the section's own `FeedbackEmails`
 builder,
 `INotificationEmitter`, `IAuditLogService`, and `IFileStorage`
-(screenshot blob deletion during GDPR erasure). Implements `IFeedbackServiceRead`, `IFeedbackTriage`
+(screenshot blob deletion during GDPR erasure). Implements `IFeedbackService`, `IFeedbackTriage`
 (Backdoor's machine-API triage surface, nobodies-collective/Humans#1128),
 `IUserDataContributor`, `IUserMerge`. Owns and caches `FeedbackBadgeCount`
 inside `GetActionableCountAsync`.

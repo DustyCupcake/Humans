@@ -6,8 +6,8 @@ namespace Humans.Users.Services;
 
 /// <summary>Backs <see cref="IUsersAudienceService"/> — see that interface for the contract.</summary>
 internal sealed class UsersAudienceService(
-    IUserService userService,
-    ITicketServiceRead ticketQueryService) : IUsersAudienceService
+    IUserManagement userService,
+    ITicketService ticketQueryService) : IUsersAudienceService
 {
     public async Task<AudienceSegmentation> GetAudienceSegmentationAsync(int? year, CancellationToken ct = default)
     {

@@ -47,7 +47,7 @@ internal interface ICityPlanningRepository : IRepository
     /// display ordering belongs to the controller
     /// (<c>memory/architecture/display-sort-in-controllers.md</c>). Read-only
     /// (AsNoTracking). The returned rows carry only the FK <c>ModifiedByUserId</c>;
-    /// user display data is resolved through <c>IUserServiceRead</c> at the service
+    /// user display data is resolved through <c>IUserService</c> at the service
     /// layer.
     /// </summary>
     Task<IReadOnlyList<CampPolygonHistory>> GetHistoryForCampSeasonAsync(
@@ -88,7 +88,7 @@ internal interface ICityPlanningRepository : IRepository
     /// <remarks>
     /// This section's tables carry no FK to <c>CampSeason</c> — the column is a bare
     /// <c>Guid</c> — so nothing in the database cascades when a camp season goes.
-    /// Camps calls this through <c>ICityPlanningService</c> inside its own delete,
+    /// Camps calls this through <c>ICityPlanningWrite</c> inside its own delete,
     /// never repository-to-repository.
     /// </remarks>
     Task<int> DeletePolygonsForCampSeasonsAsync(

@@ -10,7 +10,7 @@ namespace Humans.Camps.Data;
 /// save changes atomically inside a single
 /// <see cref="Microsoft.EntityFrameworkCore.IDbContextFactory{CampsDbContext}"/>-owned
 /// context. Cross-domain navigation is not resolved here; the application
-/// service stitches display names from <see cref="Humans.Users.Contracts.IUserServiceRead"/>.
+/// service stitches display names from <see cref="Humans.Users.Contracts.IUserService"/>.
 /// </remarks>
 internal partial interface ICampRepository
 {
@@ -76,8 +76,8 @@ internal partial interface ICampRepository
 
     /// <summary>
     /// Hard-deletes every assignment for the given <c>CampMemberId</c>. Returns the count of rows removed.
-    /// Used by <see cref="Humans.Camps.Services.ICampService.LeaveCampAsync"/> and
-    /// <see cref="Humans.Camps.Services.ICampService.WithdrawCampMembershipRequestAsync"/> cascade hooks.
+    /// Used by <see cref="Humans.Camps.Services.ICampManagement.LeaveCampAsync"/> and
+    /// <see cref="Humans.Camps.Services.ICampManagement.WithdrawCampMembershipRequestAsync"/> cascade hooks.
     /// </summary>
     Task<int> DeleteAllForMemberAsync(Guid campMemberId, CancellationToken ct = default);
 

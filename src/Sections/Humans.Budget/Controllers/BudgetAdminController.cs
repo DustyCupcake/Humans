@@ -20,19 +20,19 @@ namespace Humans.Budget.Controllers;
 /// <c>Humans.Finance.Controllers.FinanceController</c> — the action templates are disjoint.
 /// </summary>
 /// <remarks>
-/// It still calls <c>IHoldedFinanceServiceRead</c> for one thing: the per-category actuals shown on
+/// It still calls <c>IHoldedFinanceService</c> for one thing: the per-category actuals shown on
 /// the year overview. That is an ordinary cross-section service call through the Finance
 /// section's read contract, not a reason to keep the controllers merged.
 /// </remarks>
 [Authorize(Policy = PolicyNames.FinanceAdminOrAdmin)]
 [Route("Finance")]
 internal sealed class BudgetAdminController(
-    IBudgetService budgetService,
-    ITeamServiceRead teamService,
+    IBudgetManagement budgetService,
+    ITeamService teamService,
     TicketingBudgetService ticketingBudgetService,
     IClock clock,
-    IUserServiceRead userService,
-    IHoldedFinanceServiceRead holdedFinance,
+    IUserService userService,
+    IHoldedFinanceService holdedFinance,
     ILogger<BudgetAdminController> logger) : HumansControllerBase(userService)
 {
     [HttpGet("")]
@@ -223,6 +223,12 @@ internal sealed class BudgetAdminController(
     {
         var (errorResult, user) = await RequireCurrentUserAsync();
         if (errorResult is not null) return errorResult;
+
+        if (!ModelState.IsValid)
+        {
+            logger.LogWarning("Rejected malformed budget year status for {YearId}", id);
+            return BadRequest(ModelState);
+        }
 
         try
         {

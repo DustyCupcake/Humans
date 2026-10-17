@@ -23,9 +23,9 @@ namespace Humans.Events.Controllers;
 [EnableCors("EventsApi")]
 [ServiceFilter(typeof(EventsFeatureFilter))]
 internal sealed class EventsApiController(
-    IEventService guide,
-    ICampServiceRead camps,
-    IUserServiceRead users,
+    IEventManagement guide,
+    ICampService camps,
+    IUserService users,
     ILogger<EventsApiController> logger)
     : ApiControllerBase(users)
 {

@@ -36,9 +36,9 @@ Repository: `IEmailOutboxRepository`.
 
 Drains the outbox queue (the G5 playbook, step 6b): claims a processing batch,
 sends via the section-internal `IEmailTransport`, and records each outcome.
-Checks the pause flag through `IEmailOutboxService.IsEmailPausedAsync` before
-each run. Cross-section calls via `ICampaignService` (mirrors campaign-grant
-email status after send — `[CrossSectionWrite]`-marked) and `IHumansMetrics` /
+Checks the pause flag through `IEmailOutboxManagement.IsEmailPausedAsync` before
+each run. Cross-section calls via `ICampaignWrite` (mirrors campaign-grant
+email status after send) and `IHumansMetrics` /
 `IMeters`, plus `IClock`. No `IMemoryCache`.
 
 ### OutboxEmailService (Scoped)
@@ -79,8 +79,8 @@ No repository — side-effect-free preview only, via the same
 |-------|-----|
 | (none) | — |
 
-Implements `IEmailPreviewServiceRead` (cross-section) and the section-internal
-`IEmailPreviewService` it extends. `RenderSystemMessage` composes an
+Implements `IEmailPreviewService` (cross-section) and the section-internal
+`IEmailPreviewManagement` it extends. `RenderSystemMessage` composes an
 `EmailMessage` (system-category only) into a `RenderedEmailPreview` without
 touching `EmailOutboxMessages` or any repository. `RenderMarkdown`
 (internal-only) renders an arbitrary human-typed subject/Markdown body (via
@@ -97,7 +97,7 @@ No repository. Backs the `_EmailComposer` "Send to me" button
 through `SanitizedMarkdownRenderer`, and hands one `composer_self_test`
 `MessageCategory.System` message to `IEmailService.SendAsync` (the outbox
 row is `OutboxEmailService`'s write), then audits `EmailComposerSelfTestSent`
-through `IAuditLogService`. `IUserServiceRead` supplies the caller's display name.
+through `IAuditLogService`. `IUserService` supplies the caller's display name.
 Section-internal; its only consumer is `EmailPreviewController`. No cache.
 
 ---

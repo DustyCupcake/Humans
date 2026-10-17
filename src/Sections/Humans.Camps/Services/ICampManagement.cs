@@ -1,0 +1,288 @@
+using Humans.Base.Enums;
+using NodaTime;
+using Humans.EarlyEntry.Contracts;
+
+namespace Humans.Camps.Services;
+
+/// <summary>
+/// Service for managing camps and camp-season state.
+/// </summary>
+internal interface ICampManagement : ICampService, IApplicationService, IEarlyEntryProvider
+{
+    // Registration
+    Task<CampWriteResult<Camp>> CreateCampAsync(
+        Guid createdByUserId,
+        string name,
+        string contactEmail,
+        string contactPhone,
+        string? webOrSocialUrl,
+        List<CampLink>? links,
+        bool isSwissCamp,
+        int timesAtNowhere,
+        CampSeasonData seasonData,
+        List<string>? historicalNames,
+        int year,
+        CancellationToken cancellationToken = default);
+
+    // Queries
+    /// <summary>The live active-event year, falling back to the clock year before an event exists.</summary>
+    Task<int> GetActiveYearAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Season, user and status of one membership row; null when the row does not exist.</summary>
+    Task<CampMemberLookup?> GetCampMemberStatusAsync(Guid campMemberId, CancellationToken cancellationToken = default);
+
+    Task<CampEditData?> GetCampEditDataAsync(
+        Guid campId,
+        int? preferredYear = null,
+        CancellationToken cancellationToken = default);
+
+    // Season management
+    Task<CampWriteResult<CampSeason>> OptInToSeasonAsync(Guid campId, int year, Guid? actorUserId, CancellationToken cancellationToken = default);
+    /// <summary>Returns a refusal if the season does not belong to <paramref name="scopedCampId"/> — the id arrives from a lead-facing form.</summary>
+    Task<CampUpdateResult> UpdateSeasonAsync(Guid scopedCampId, Guid seasonId, CampSeasonData data, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task ApproveSeasonAsync(Guid seasonId, Guid reviewedByUserId, string? notes, CancellationToken cancellationToken = default);
+    Task RejectSeasonAsync(Guid seasonId, Guid reviewedByUserId, string notes, CancellationToken cancellationToken = default);
+    /// <summary>Returns a refusal if the season does not belong to <paramref name="scopedCampId"/> — the id arrives from a lead-facing form.</summary>
+    Task<CampUpdateResult> WithdrawSeasonAsync(Guid scopedCampId, Guid seasonId, Guid actorUserId, CancellationToken cancellationToken = default);
+    /// <summary>CampAdmin-only verb (unscoped by design — the dashboard is cross-camp).</summary>
+    Task ReactivateSeasonAsync(Guid seasonId, Guid actorUserId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Camp lead or CampAdmin marks an Active season Full. The Full label does not block join requests.
+    /// Returns a refusal for a non-Active season or one outside <paramref name="scopedCampId"/>, matching the
+    /// scoping pattern used by ApproveCampMemberAsync/RejectCampMemberAsync/RemoveCampMemberAsync.
+    /// </summary>
+    Task<CampUpdateResult> MarkSeasonFullAsync(
+        Guid scopedCampId, Guid seasonId, Guid actorUserId, CancellationToken cancellationToken = default);
+    // Camp updates
+    Task<CampUpdateResult> UpdateCampAsync(CampUpdateInput input, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task DeleteCampAsync(Guid campId, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    // Historical names
+    Task<CampUpdateResult> AddHistoricalNameAsync(Guid campId, string name, CancellationToken cancellationToken = default);
+    /// <summary>Returns a refusal if the name does not belong to <paramref name="scopedCampId"/> — the id arrives from a lead-facing form.</summary>
+    Task<CampUpdateResult> RemoveHistoricalNameAsync(Guid scopedCampId, Guid historicalNameId, CancellationToken cancellationToken = default);
+
+    // Images
+    Task<CampImageUploadResult> UploadImageAsync(Guid campId, Stream fileStream, string fileName, string contentType, long length, Guid actorUserId, CancellationToken cancellationToken = default);
+    /// <summary>Returns a refusal if the image does not belong to <paramref name="scopedCampId"/> — the id arrives from a lead-facing form.</summary>
+    Task<CampUpdateResult> DeleteImageAsync(Guid scopedCampId, Guid imageId, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task ReorderImagesAsync(Guid campId, List<Guid> imageIdsInOrder, CancellationToken cancellationToken = default);
+
+    // Settings (CampAdmin)
+    Task OpenSeasonAsync(int year, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task CloseSeasonAsync(int year, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task SetNameLockDateAsync(int year, LocalDate lockDate, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    // Name change (handles historical name logging)
+    /// <summary>Returns a refusal if the season does not belong to <paramref name="scopedCampId"/> — the id arrives from a lead-facing form.</summary>
+    Task<CampUpdateResult> ChangeSeasonNameAsync(Guid scopedCampId, Guid seasonId, string newName, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    // ==========================================================================
+    // Camp membership per season (issue nobodies-collective#488)
+    // ==========================================================================
+
+    /// <summary>Idempotent — returns existing row's id with an <c>Already*</c> outcome if one exists.</summary>
+    Task<CampMemberRequestResult> RequestCampMembershipAsync(
+        Guid campId, Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Returns a refusal if the membership's season belongs to a different camp than <paramref name="scopedCampId"/>.</summary>
+    Task<CampMembershipMutationResult> ApproveCampMemberAsync(
+        Guid scopedCampId, Guid campMemberId, Guid approvedByUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Returns a refusal if the membership's season belongs to a different camp than <paramref name="scopedCampId"/>.</summary>
+    Task<CampMembershipMutationResult> RejectCampMemberAsync(
+        Guid scopedCampId, Guid campMemberId, Guid rejectedByUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Returns a refusal if the membership's season belongs to a different camp than <paramref name="scopedCampId"/>.</summary>
+    Task<CampMembershipMutationResult> RemoveCampMemberAsync(
+        Guid scopedCampId, Guid campMemberId, Guid removedByUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Bypasses the request/approve flow for the camp's active season. Idempotent. Caller authorizes.</summary>
+    Task<AddCampMemberOutcome> AddCampMemberToActiveSeasonAsync(
+        Guid campId, Guid userId, Guid actorUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds the human as an active member of the season (idempotent — no-op if
+    /// already active) and then assigns them the given camp role in a single
+    /// operation. Used by the camp-edit role picker so callers don't have to
+    /// orchestrate the two sub-mutations themselves. Caller authorizes.
+    /// </summary>
+    Task<AssignCampRoleOutcome> AddMemberAndAssignRoleInActiveSeasonAsync(
+        Guid campId, Guid roleDefinitionId, Guid userId, Guid actorUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Returns a CampsResource refusal key if the row is missing, belongs to another user, or is not Pending.</summary>
+    Task<CampMembershipMutationResult> WithdrawCampMembershipRequestAsync(
+        Guid campMemberId, Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Returns a CampsResource error key if the row is missing, belongs to another user, or is not Active.</summary>
+    Task<CampMembershipMutationResult> LeaveCampAsync(
+        Guid campMemberId, Guid userId, CancellationToken cancellationToken = default);
+
+    // ==========================================================================
+    // Early Entry (issue nobodies-collective#490)
+    // ==========================================================================
+
+    /// <summary>
+    /// Sets the EE slot cap for a given camp season. CampAdmin/Admin only.
+    /// Allowed to drop below the current granted-count: existing grants are retained
+    /// but no new grants can be issued until the granted-count falls back under the cap.
+    /// </summary>
+    Task SetCampSeasonEeSlotCountAsync(
+        Guid campSeasonId, int slotCount, Guid actorUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Grants or revokes Early Entry for a CampMember. Camp lead, CoLead, CampAdmin,
+    /// or Admin only; authorization enforced at the controller layer.
+    /// <paramref name="scopedCampId"/> must match the camp the member belongs to;
+    /// returns MemberNotFound when the member does not exist or belongs to a different camp.
+    /// Rejects when granting would push the season's active-granted count above
+    /// CampSeason.EeSlotCount, or when the member is not Status=Active.
+    /// Idempotent: writes no audit row when the value is already at the requested state.
+    /// </summary>
+    Task<SetEarlyEntryOutcome> SetEarlyEntryAsync(
+        Guid scopedCampId, Guid campMemberId, bool granted, Guid actorUserId,
+        CancellationToken cancellationToken = default);
+}
+
+internal sealed record CampMemberLookup(Guid CampSeasonId, Guid UserId, CampMemberStatus Status);
+
+/// <summary>
+/// Result of a camp membership request action.
+/// </summary>
+internal sealed record CampMemberRequestResult(
+    Guid CampMemberId,
+    CampMemberRequestOutcome Outcome,
+    string MessageKey,
+    CampMemberRequestNoticeLevel NoticeLevel);
+
+internal sealed record CampMembershipMutationResult(bool Succeeded, string? ErrorMessage)
+{
+    public static CampMembershipMutationResult Success() => new(true, null);
+
+    public static CampMembershipMutationResult Failure(string errorMessage) => new(false, errorMessage);
+}
+
+internal sealed record CampUpdateInput(
+    Guid CampId,
+    string ContactEmail,
+    string ContactPhone,
+    string? WebOrSocialUrl,
+    List<CampLink>? Links,
+    bool IsSwissCamp,
+    int TimesAtNowhere,
+    bool HideHistoricalNames,
+    Guid SeasonId,
+    string SeasonName,
+    CampSeasonData SeasonData);
+
+internal sealed record CampUpdateResult(bool Succeeded, string? ErrorKey)
+{
+    public static CampUpdateResult Success() => new(true, null);
+
+    public static CampUpdateResult Failure(string errorMessage) => new(false, errorMessage);
+}
+
+internal enum CampMemberRequestOutcome
+{
+    /// <summary>A new pending request was created.</summary>
+    Created,
+    /// <summary>An existing pending request already existed for the human.</summary>
+    AlreadyPending,
+    /// <summary>The human is already an active member of the camp for this season.</summary>
+    AlreadyActive,
+    /// <summary>No open season for the camp — the request was not created.</summary>
+    NoOpenSeason
+}
+
+internal enum CampMemberRequestNoticeLevel
+{
+    Success,
+    Info,
+    Error
+}
+
+internal enum AddCampMemberOutcome
+{
+    Added,
+    InvalidUser,
+    NoActiveSeason
+}
+
+internal sealed record CampEditData(
+    Guid CampId,
+    string Slug,
+    Guid SeasonId,
+    int Year,
+    bool IsNameLocked,
+    string Name,
+    string ContactEmail,
+    string ContactPhone,
+    IReadOnlyList<string> Links,
+    bool IsSwissCamp,
+    bool HideHistoricalNames,
+    int TimesAtNowhere,
+    string BlurbLong,
+    string BlurbShort,
+    string Languages,
+    YesNoMaybe AcceptingMembers,
+    YesNoMaybe KidsWelcome,
+    KidsVisitingPolicy KidsVisiting,
+    string? KidsAreaDescription,
+    PerformanceSpaceStatus HasPerformanceSpace,
+    string? PerformanceTypes,
+    IReadOnlyList<CampVibe> Vibes,
+    AdultPlayspacePolicy AdultPlayspace,
+    int MemberCount,
+    SpaceSize? SpaceRequirement,
+    SoundZone? SoundZone,
+    ElectricalGrid? ElectricalGrid,
+    IReadOnlyList<CampImageSummary> Images,
+    IReadOnlyList<CampHistoricalNameSummary> HistoricalNames);
+
+internal sealed record CampImageUploadResult(bool Succeeded, CampImage? Image, string? ErrorMessage)
+{
+    public static CampImageUploadResult Success(CampImage image) => new(true, image, null);
+
+    public static CampImageUploadResult Failure(string errorMessage) => new(false, null, errorMessage);
+}
+
+internal sealed record CampHistoricalNameSummary(
+    Guid Id,
+    string Name,
+    int? Year,
+    string Source);
+
+internal sealed record CampPublicSummary(
+    Guid Id,
+    string Slug,
+    string Name,
+    string BlurbShort,
+    string BlurbLong,
+    string? ImageUrl,
+    IReadOnlyList<string> Vibes,
+    string AcceptingMembers,
+    string KidsWelcome,
+    string? SoundZone,
+    string Status,
+    int TimesAtNowhere,
+    bool IsSwissCamp,
+    IReadOnlyList<CampLink>? Links,
+    string? WebOrSocialUrl);
+
+internal sealed record CampPlacementSummary(
+    Guid Id,
+    string Slug,
+    string Name,
+    int MemberCount,
+    string? SpaceRequirement,
+    string? SoundZone,
+    string Status,
+    string? ElectricalGrid);
+
+internal sealed record CampWriteResult<T>(T? Value, string? ErrorKey = null) where T : class;

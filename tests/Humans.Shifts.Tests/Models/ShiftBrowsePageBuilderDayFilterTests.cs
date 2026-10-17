@@ -18,9 +18,9 @@ namespace Humans.Shifts.Tests.Models;
 /// </summary>
 public class ShiftBrowsePageBuilderDayFilterTests
 {
-    private readonly IShiftManagementService _shiftManagement = Substitute.For<IShiftManagementService>();
+    private readonly IShiftManagement _shiftManagement = Substitute.For<IShiftManagement>();
     private readonly IBurnSettingsService _burnSettings = Substitute.For<IBurnSettingsService>();
-    private readonly ITeamServiceRead _teamService = Substitute.For<ITeamServiceRead>();
+    private readonly ITeamService _teamService = Substitute.For<ITeamService>();
 
     private static readonly BurnSettingsInfo Event = new(
         Id: Guid.NewGuid(),

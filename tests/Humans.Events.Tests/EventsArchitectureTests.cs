@@ -1,5 +1,7 @@
 using System.Reflection;
 using AwesomeAssertions;
+using NSubstitute;
+using NodaTime;
 using Humans.Base.Authorization;
 using Humans.Gdpr.Contracts;
 using Humans.Events.Contracts;
@@ -85,14 +87,11 @@ public class EventsArchitectureTests
     // ── T-03: Caching decorator invariants ───────────────────────────────────
 
     [HumansFact]
-    public void CachingEventService_ImplementsIEventService_AndIEventViewInvalidator()
+    public void CachingEventService_ImplementsIEventManagement()
     {
-        typeof(IEventService).IsAssignableFrom(typeof(CachingEventService))
+        typeof(IEventManagement).IsAssignableFrom(typeof(CachingEventService))
             .Should().BeTrue(
-                because: "the decorator wraps the IEventService surface");
-        typeof(IEventViewInvalidator).IsAssignableFrom(typeof(CachingEventService))
-            .Should().BeTrue(
-                because: "§15e — the decorator and its invalidator interface resolve to the same Singleton instance");
+                because: "the decorator wraps the IEventManagement surface");
     }
 
     [HumansFact]
@@ -121,16 +120,6 @@ public class EventsArchitectureTests
                 because: "the decorator drives its own startup warmup via IHostedService");
     }
 
-    // ── Cross-section read surface (IEventServiceRead) ───────────────────────
-
-    [HumansFact]
-    public void IEventService_DerivesFrom_IEventServiceRead()
-    {
-        typeof(IEventServiceRead).IsAssignableFrom(typeof(IEventService))
-            .Should().BeTrue(
-                because: "other sections consume the Events section through the IEventServiceRead read surface");
-    }
-
     /// <summary>The section's own DI registrations, from <see cref="Section.Register"/>.</summary>
     private static ServiceCollection Registrations()
     {
@@ -147,5 +136,28 @@ public class EventsArchitectureTests
             .Single();
 
         return route.Template;
+    }
+
+    /// <summary>
+    /// Asserts that <see cref="IEventManagement"/> and <see cref="IEventService"/> resolve to the same
+    /// singleton from the production DI registration — <c>Section.Register</c>
+    /// itself, not a test-built mirror of it.
+    /// </summary>
+    [HumansFact]
+    public void IEventManagement_And_IEventService_ResolveToSameInstance()
+    {
+        var services = Registrations();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IClock>());
+
+        using var provider = services.BuildServiceProvider();
+
+        var fromManagement = provider.GetRequiredService<IEventManagement>();
+        var fromPublic = provider.GetRequiredService<IEventService>();
+
+        fromManagement.Should().BeOfType<CachingEventService>(
+            because: "the cache decorator is the section's public face");
+        ReferenceEquals(fromManagement, fromPublic).Should().BeTrue(
+            because: "both interfaces must expose the same singleton so the cache is shared");
     }
 }

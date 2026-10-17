@@ -12,13 +12,13 @@ using NodaTime;
 namespace Humans.Expenses.Services;
 
 /// <summary>The resumable Holded document and attachment conversation for an approved expense report.</summary>
-[CrossSectionWrite("Publishes expense documents and creditor bindings through Finance and Holded contracts.")]
 internal sealed class ExpenseHoldedPublisher(
     IExpenseRepository repo,
     IFileStorage fileStorage,
-    IUserServiceRead userService,
+    IUserService userService,
     IHoldedClient holdedClient,
     IHoldedFinanceService holdedFinance,
+    IHoldedFinanceWrite holdedFinanceWrite,
     IAuditLogService auditLogService,
     ILogger logger) : IApplicationService
 {
@@ -58,7 +58,7 @@ internal sealed class ExpenseHoldedPublisher(
             seedAccountNum = priorLinked?.HoldedSupplierAccountNum;
         }
 
-        var holdedContactId = await holdedFinance.EnsureCreditorContactAsync(
+        var holdedContactId = await holdedFinanceWrite.EnsureCreditorContactAsync(
             creditorUserId, report.PayeeName, burnerName, report.PayeeIban,
             seedContactId, seedAccountNum, ct);
 
@@ -118,7 +118,7 @@ internal sealed class ExpenseHoldedPublisher(
         }
         await repo.SetHoldedContactLinkAsync(report.Id, holdedContactId, supplierAccountNum, now, ct);
         if (supplierAccountNum is not null)
-            await holdedFinance.SetCreditorAccountNumAsync(creditorUserId, supplierAccountNum.Value, ct);
+            await holdedFinanceWrite.SetCreditorAccountNumAsync(creditorUserId, supplierAccountNum.Value, ct);
 
         await repo.MarkOutboxProcessedAsync(outboxEventId, now, ct);
 
@@ -222,7 +222,13 @@ internal sealed class ExpenseHoldedPublisher(
         // AuditLogEntry.Description caps at 4,000 chars (job-name prefix included) and a failed
         // insert is swallowed, so an oversized summary loses the audit entry entirely.
         const int maxSummaryLength = 3500;
-        return full.Length <= maxSummaryLength ? full : full[..(maxSummaryLength - 1)] + "…";
+        if (full.Length <= maxSummaryLength)
+            return full;
+
+        var length = maxSummaryLength - 1;
+        if (char.IsHighSurrogate(full[length - 1]) && char.IsLowSurrogate(full[length]))
+            length--;
+        return full[..length] + "…";
     }
 
     /// <summary>

@@ -10,8 +10,8 @@ namespace Humans.MailerLite.Services.Audiences;
 /// Users with no Marketing preference row (default-off) or who hold a ticket are excluded.
 /// </summary>
 internal sealed class MarketingNoTicketAudience(
-    IUserServiceRead users,
-    ITicketServiceRead tickets) : MailerLiteAudienceBase(users)
+    IUserService users,
+    ITicketService tickets) : MailerLiteAudienceBase(users)
 {
     public override string Key => "marketing-no-ticket";
     public override string DisplayName => "Marketing opt-ins without a ticket";

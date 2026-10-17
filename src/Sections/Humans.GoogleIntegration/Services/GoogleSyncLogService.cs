@@ -13,8 +13,8 @@ namespace Humans.GoogleIntegration.Services;
 /// <summary>Write and read sides of <c>google_sync_log</c>; one class, three interfaces.</summary>
 internal sealed class GoogleSyncLogService(
     IGoogleSyncLogRepository repo,
-    ITeamResourceService teamResourceService,
-    IUserServiceRead userService,
+    ITeamResourceManagement teamResourceService,
+    IUserService userService,
     IUserEmailService userEmailService,
     IServiceProvider serviceProvider,
     IClock clock,
@@ -22,6 +22,7 @@ internal sealed class GoogleSyncLogService(
     : IGoogleSyncLogService, IGoogleSyncLogViewer, IUserDataContributor
 {
     internal const string GoogleSyncLog = "GoogleSyncLog";
+    private const int MaxRecentRows = 500;
 
     public async Task LogAsync(
         GoogleSyncLogAction action,
@@ -91,6 +92,26 @@ internal sealed class GoogleSyncLogService(
         return await ToViewsAsync(entries, ct);
     }
 
+    public async Task<IReadOnlyList<GoogleSyncLogView>> GetRecentAsync(
+        Instant? from, Instant? to, GoogleSyncLogAction? action, GoogleSyncSource? source, bool? success,
+        string? resourceName, CancellationToken ct = default)
+    {
+        // Names live in google_resources (ITeamResourceManagement), so resolve the name filter to ids first.
+        IReadOnlyCollection<Guid>? resourceIds = null;
+        if (!string.IsNullOrWhiteSpace(resourceName))
+        {
+            var needle = resourceName.Trim();
+            var names = await teamResourceService.GetResourceNamesByIdsAsync(await repo.GetResourceIdsAsync(ct), ct);
+            resourceIds = names.Where(n => n.Value.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                .Select(n => n.Key).ToList();
+        }
+
+        // Unregistered Drive folders log Guid.Empty; the sync service puts their path in the description.
+        var entries = await repo.GetRecentAsync(from, to, action, source, success, resourceIds, MaxRecentRows, ct,
+            unlinkedDescriptionContains: resourceName?.Trim() is { Length: > 0 } needle2 ? needle2 : null);
+        return await ToViewsAsync(entries, ct);
+    }
+
     /// <summary>GDPR Article 15 slice — every sync row attributed to this human, uncapped.</summary>
     public async Task<IReadOnlyList<UserDataSlice>> ContributeForUserAsync(Guid userId, CancellationToken ct)
     {
@@ -130,7 +151,7 @@ internal sealed class GoogleSyncLogService(
         var workspaceEmail = await userEmailService.GetNobodiesTeamEmailAsync(userId, ct);
         if (workspaceEmail is not null)
         {
-            // Resolved here, not injected: GoogleAdminService -> IGoogleSyncService ->
+            // Resolved here, not injected: GoogleAdminService -> IGoogleSyncManagement ->
             // IGoogleSyncLogService closes a constructor cycle back onto this class.
             // Same lazy-resolve the section already uses in GoogleWorkspaceSyncService.
             var googleAdminService = serviceProvider.GetRequiredService<IGoogleAdminService>();
@@ -186,7 +207,8 @@ internal sealed class GoogleSyncLogService(
                 e.Role,
                 e.Source,
                 e.Success,
-                e.ErrorMessage))
+                e.ErrorMessage,
+                e.UserId))
             .ToList();
     }
 }

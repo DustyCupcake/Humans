@@ -13,7 +13,7 @@ Project: `src/Sections/Humans.Tickets` is split across **two projects
 plus a contracts leaf**: `src/Sections/Humans.Tickets` (orders, attendees,
 transfers, sync orchestration, the admin surface — everything `internal
 sealed`), `src/Sections/Humans.Tickets.Contracts` (the leaf:
-`ITicketServiceRead`, `ITicketSync`, `ITicketDiscountCodes`,
+`ITicketService`, `ITicketSync`, `ITicketDiscountCodes`,
 `ITicketVendorMirror`), and
 `src/Sections/Humans.TicketTailor` (the vendor adapter — the sole
 implementation of the vendor port; owns no tables, publishes nothing, and
@@ -24,7 +24,7 @@ references `Humans.Tickets` directly to name the port).
 `IDbContextFactory<TicketsDbContext>` directly. Owns `TicketOrders`,
 `TicketAttendees`, `TicketSyncStates`, `TicketTransferRequests`.
 
-The section's public surface is small: `ITicketServiceRead` (2 members,
+The section's public surface is small: `ITicketService` (2 members,
 no `SurfaceBudget` pinned), `ITicketSync` (2), `ITicketDiscountCodes` (1),
 `ITicketVendorMirror` (1). `TicketDashboardDtos` (24 public types), the
 transfer wizard (including the `ITicketTransferQueue` badge count), and the
@@ -44,10 +44,10 @@ registered keyed under `CachingTicketQueryService.InnerServiceKey`
 (`"ticket-query-inner"`), and is wrapped by the Singleton
 `CachingTicketQueryService` decorator (`Services/Stores/`).
 The decorator is the registered
-`ITicketService`, the budgeted cross-section `ITicketServiceRead`, and the
-`ITicketCacheInvalidator`. External sections inject `ITicketServiceRead`
+`ITicketManagement`, the budgeted cross-section `ITicketService`, and the
+`ITicketCacheInvalidator`. External sections inject `ITicketService`
 (`GetTicketOrdersAsync`, `GetUserTicketHoldingsAsync` and shared current-event barcode lookup)
-rather than the full `ITicketService`. Tickets caching is entirely
+rather than the full `ITicketManagement`. Tickets caching is entirely
 `TrackedCache`-based: an orders slice (`Tickets.Orders`, warmed on startup)
 and a user-holdings slice (`Tickets.UserHoldings`, lazy with a 5-minute
 freshness deadline embedded in the cached value).
@@ -65,8 +65,8 @@ Repositories: `ITicketRepository`, `ITicketTransferRepository`.
 
 The inner service holds no cache — invalidation methods are no-ops on the
 inner; `CachingTicketQueryService` intercepts. Cross-section calls via
-`IBudgetServiceRead`, `ICampaignServiceRead` (read-split surface), `IUserServiceRead`,
-`IUserEmailService`, `ITeamServiceRead` (read-split surface),
+`IBudgetService`, `ICampaignService`, `ICampaignWrite`, `IUserService`,
+`IUserEmailService`, `ITeamService` (read-split surface),
 `ISettingsService`, plus `IClock`. Implements
 `IUserDataContributor` (the GDPR contributor is the inner, one per section):
 `EraseForUserAsync` erases via `ITicketRepository.EraseUserPiiAsync` +
@@ -79,11 +79,11 @@ projection carries the now-stale names/emails.
 `ComputeUserTicketCountAsync` matches a user's tickets by fetching the
 valid attendee emails (`ITicketRepository.GetValidAttendeeEmailsAsync`) and
 looking each up **in-memory** in the same verified-email → user index the
-sync builds (`VerifiedEmailLookup` over `IUserServiceRead.GetAllUserInfosAsync`;
+sync builds (`VerifiedEmailLookup` over `IUserService.GetAllUserInfosAsync`;
 an email verified by two users maps to nobody) — no extra repository round-trip.
 
 Email-to-user matching for ticket sync routes through
-`IUserServiceRead.GetAllUserInfosAsync` (see
+`IUserService.GetAllUserInfosAsync` (see
 `TicketSyncService.BuildEmailLookupAsync`); no cross-section `UserEmails`
 reads remain.
 
@@ -94,7 +94,7 @@ attendees, resolved from approved `TicketTransferRequests` via the
 `ITicketTransferRepository` read in `TicketQueryService`). The admin
 attendee search predicate in `TicketRepository` matches barcode alongside
 name/email. The Scanner ticket card (`ScannerController`) resolves a barcode
-by filtering `ITicketServiceRead.GetTicketOrdersAsync` in memory.
+by filtering `ITicketService.GetTicketOrdersAsync` in memory.
 
 `TicketAttendees` also has a `CheckedInAt` column — `TicketSyncService`
 syncs vendor check-ins from the TicketTailor `/check_ins` endpoint so the
@@ -112,7 +112,7 @@ has an automated TicketTailor void(-to-hold)+reissue path
 | `TrackedCache<Guid, TicketOrderInfo>` (`Tickets.Orders`, warmed on startup) | Per-Entity | yes | yes (warm + lazy) | `ITicketCacheInvalidator` (clear-all on transfer / contact-import / merge / sync) |
 | `TrackedCache<Guid, CachedUserTicketHoldings>` (`Tickets.UserHoldings`, lazy, 5-min freshness inside value) | Per-User | yes | yes (lazy load) | `ITicketCacheInvalidator` (per-user evict on transfer/merge; clear-all on contact import) |
 
-Implements `ITicketService`, `ITicketServiceRead`, `ITicketCacheInvalidator`,
+Implements `ITicketManagement`, `ITicketService`, `ITicketCacheInvalidator`,
 `IHostedService` (its `StartAsync` warms the orders slice). Resolves the keyed
 Scoped inner per-call via `IServiceScopeFactory`. Both `TrackedCache`
 instances are surfaced on `/Debug/CacheStats`.
@@ -147,10 +147,10 @@ Repositories: `ITicketRepository`, `ITicketTransferRepository`.
 | `Tickets.Orders` / `Tickets.UserHoldings` tracked slices (via `ITicketCacheInvalidator`) | per-process | | | yes |
 
 Cross-section calls via `ITicketVendorService`, `IStripeService`,
-`IUserServiceRead`, `IUserService`, `ICampaignService`,
+`IUserService`, `IUserWrite`, `ICampaignWrite`,
 `ISettingsService`, `ITicketCacheInvalidator`. Implements
 `ITicketSyncService`, `IUserMerge`. `BuildEmailLookupAsync` builds the
-verified-email → user-id map by fanning out over `IUserServiceRead.GetAllUserInfosAsync`.
+verified-email → user-id map by fanning out over `IUserService.GetAllUserInfosAsync`.
 
 ### TicketTransferService (Scoped)
 
@@ -162,7 +162,7 @@ Repositories: `ITicketRepository`, `ITicketTransferRepository`.
 | TicketAttendees | R/W |
 | TicketTransferRequests | R/W |
 
-Cross-section calls via `IUserServiceRead`, `IUserEmailService`,
+Cross-section calls via `IUserService`, `IUserEmailService`,
 `IEmailService`, the section's own `TicketsEmails` builder,
 `IAuditLogService`, plus
 `ITicketVendorService` (`ProcessTransferAsync` / `RetryReissueAsync` run the
@@ -178,7 +178,7 @@ Transfers of gate-checked-in tickets are refused — `CheckedInAt` respected.
 No `IMemoryCache` directly.
 
 Tickets is also read from the outside by `TicketingBudgetService`, which
-consumes `ITicketServiceRead.GetTicketOrdersAsync` to build the budget's
+consumes `ITicketService.GetTicketOrdersAsync` to build the budget's
 ticketing actuals. It is a Budget service and is documented in
 [Budget's map](../../Humans.Budget/Docs/data-access.md).
 
@@ -211,8 +211,8 @@ ticket caches via `InvalidateAfterContactImport`. No `IMemoryCache` directly.
 ### OnsiteRosterService (Scoped)
 
 No repository. "Who's onsite" roster orchestrator. Pure read
-orchestration over `IUserServiceRead`, `ICampServiceRead`, `ITeamServiceRead`,
-`IRoleAssignmentServiceRead` (the controller resolves the active year via
+orchestration over `IUserService`, `ICampService`, `ITeamService`,
+`IRoleAssignmentService` (the controller resolves the active year via
 `ISettingsService`). Implements
 `IOnsiteRosterService`, `IApplicationService`. No direct DB access, no cache.
 
@@ -225,10 +225,10 @@ No repository, no `IApplicationService`-derived interface (plain class, not
 part of the verifier's service inventory). Provisions and manages the shared
 gate-terminal account (`SystemUserIds.GateTerminal` — a real `User` row, not
 a person) the first time a ticket admin sets its password from
-`/Tickets/Admin/Gate`. `[CrossSectionWrite]`-marked: creates the Identity
+`/Tickets/Admin/Gate`. Creates the Identity
 user via `UserManager<User>`, saves its profile through Users' canonical
 `IProfileEditorService.SaveProfileAsync`, clears its consent check via
-`IUserService.ApplyProfileOnboardingMutationAsync`, invalidates user-access
+`IUserWrite.ApplyProfileOnboardingMutationAsync`, invalidates user-access
 cache and `IUserInfoInvalidator`, and logs via `IAuditLogService`. No direct
 DB or cache access of its own — every mutation goes through another
 section's public service surface.

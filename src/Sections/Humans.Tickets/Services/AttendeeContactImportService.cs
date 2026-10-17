@@ -1,4 +1,3 @@
-using Humans.Base.Attributes;
 using Humans.AuditLog.Contracts;
 using Humans.Users.Contracts;
 using Humans.Settings.Contracts;
@@ -9,12 +8,12 @@ using Humans.Tickets.Domain;
 
 namespace Humans.Tickets.Services;
 
-[CrossSectionWrite("Ticket import writes participation onto the imported attendee's user.")]
 internal sealed class AttendeeContactImportService(
     ITicketRepository ticketRepository,
     IUserEmailService userEmails,
     IAccountProvisioningService provisioning,
     IUserService users,
+    IUserWrite userWrite,
     ISettingsService settingsService,
     ITicketCacheInvalidator ticketCacheInvalidator,
     IAuditLogService audit,
@@ -112,7 +111,7 @@ internal sealed class AttendeeContactImportService(
         {
             foreach (var userId in importState.NewlyMatchedUserIds)
             {
-                await users.SetParticipationFromTicketSyncAsync(
+                await userWrite.SetParticipationFromTicketSyncAsync(
                     userId, active.Year, ParticipationStatus.Ticketed, checkedInAt: null, ct);
             }
         }

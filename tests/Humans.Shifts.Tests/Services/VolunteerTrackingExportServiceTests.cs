@@ -1,4 +1,5 @@
 using Humans.Shifts.Data;
+using Humans.AuditLog.Contracts;
 using Humans.Shifts.Domain;
 using AwesomeAssertions;
 using Humans.Settings.Contracts;
@@ -14,6 +15,8 @@ namespace Humans.Shifts.Tests.Services;
 
 public sealed class VolunteerTrackingExportServiceTests
 {
+    private static readonly Guid ActorId = Guid.NewGuid();
+    private readonly IAuditLogService _audit = Substitute.For<IAuditLogService>();
     // Fixed test event: Elsewhere 2026 in Europe/Madrid, with stable IDs for assertions.
     private static readonly Guid EventId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly Guid TeamA = Guid.Parse("11111111-0000-0000-0000-000000000000");
@@ -34,10 +37,11 @@ public sealed class VolunteerTrackingExportServiceTests
             StartDate: start ?? Day1,
             EndDate: end ?? Day7,
             Period: period,
+            ActorUserId: ActorId,
             ActorPlayaName: "TestActor",
             GeneratedAtUtc: TestNow);
 
-    private static (IShiftManagementRepository repo, IShiftManagementService shiftMgmt, IBurnSettingsService burnSettings, IUserService users)
+    private static (IShiftManagementRepository repo, IShiftManagement shiftMgmt, IBurnSettingsService burnSettings, IUserService users)
         BuildMocks(
             IReadOnlyList<ConfirmedShiftRow> shifts,
             IReadOnlyList<(Guid TeamId, string TeamName)>? departments = null,
@@ -48,7 +52,7 @@ public sealed class VolunteerTrackingExportServiceTests
             Arg.Any<Guid>(), Arg.Any<IEventSettingsInfo>(), Arg.Any<LocalDate>(), Arg.Any<LocalDate>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(shifts);
 
-        var shiftMgmt = Substitute.For<IShiftManagementService>();
+        var shiftMgmt = Substitute.For<IShiftManagement>();
         shiftMgmt.GetDepartmentsWithRotasAsync(EventId)
             .Returns(departments ?? Array.Empty<(Guid, string)>());
         var burnSettings = Substitute.For<IBurnSettingsService>();
@@ -106,10 +110,12 @@ public sealed class VolunteerTrackingExportServiceTests
     public async Task EmptyRange_ReturnsModelWithNoGroupsButFullMetadata()
     {
         var (repo, shiftMgmt, burnSettings, users) = BuildMocks(shifts: Array.Empty<ConfirmedShiftRow>());
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
 
         var model = await sut.BuildAsync(BuildRequest(), ct: Xunit.TestContext.Current.CancellationToken);
 
+        await _audit.Received(1).LogAsync(AuditAction.VolunteerTrackingExported, "EventSettings", EventId,
+            Arg.Is<string>(text => text.Contains("0 people rows", StringComparison.Ordinal)), ActorId);
         model.Groups.Should().BeEmpty();
         model.TotalsPerDay.Should().AllBeEquivalentTo(0);
         model.Days.Should().HaveCount(7);
@@ -135,10 +141,12 @@ public sealed class VolunteerTrackingExportServiceTests
             shifts: shifts,
             departments: [(TeamA, "TeamA")],
             playaNames: new Dictionary<Guid, string> { [Alice] = "Alice" });
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
 
         var model = await sut.BuildAsync(BuildRequest(), ct: Xunit.TestContext.Current.CancellationToken);
 
+        await _audit.Received(1).LogAsync(AuditAction.VolunteerTrackingExported, "EventSettings", EventId,
+            Arg.Is<string>(text => text.Contains("1 people rows", StringComparison.Ordinal)), ActorId);
         model.Groups.Should().HaveCount(1);
         var group = model.Groups[0];
         group.TeamId.Should().Be(TeamA);
@@ -179,7 +187,7 @@ public sealed class VolunteerTrackingExportServiceTests
             shifts: shifts,
             departments: [(TeamA, "TeamA")],
             playaNames: new Dictionary<Guid, string> { [Alice] = "Alice" });
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
 
         var model = await sut.BuildAsync(BuildRequest(), ct: Xunit.TestContext.Current.CancellationToken);
 
@@ -199,7 +207,7 @@ public sealed class VolunteerTrackingExportServiceTests
         var repo = Substitute.For<IShiftManagementRepository>();
         repo.GetConfirmedShiftsInRangeAsync(EventId, Arg.Any<IEventSettingsInfo>(), Day1, Day7, TeamA, Arg.Any<CancellationToken>())
             .Returns(teamAOnly);
-        var shiftMgmt = Substitute.For<IShiftManagementService>();
+        var shiftMgmt = Substitute.For<IShiftManagement>();
         var burnSettings = Substitute.For<IBurnSettingsService>();
         shiftMgmt.GetDepartmentsWithRotasAsync(EventId).Returns([(TeamA, "TeamA")]);
         burnSettings.GetByIdAsync(EventId, Arg.Any<CancellationToken>()).Returns(TestBurnSettings());
@@ -207,7 +215,7 @@ public sealed class VolunteerTrackingExportServiceTests
         users.GetUserInfosAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<Guid, UserInfo> { [Bob] = MakeUserInfo(Bob, "Bob") });
 
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
         var model = await sut.BuildAsync(BuildRequest(departmentId: TeamA), ct: Xunit.TestContext.Current.CancellationToken);
 
         model.Groups.Should().HaveCount(1);
@@ -230,7 +238,7 @@ public sealed class VolunteerTrackingExportServiceTests
             shifts: shifts,
             departments: [(TeamA, "TeamA")],
             playaNames: new Dictionary<Guid, string> { [Alice] = "Alice" });
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
 
         var model = await sut.BuildAsync(BuildRequest(), ct: Xunit.TestContext.Current.CancellationToken);
 
@@ -253,7 +261,7 @@ public sealed class VolunteerTrackingExportServiceTests
             shifts: shifts,
             departments: [(TeamA, "TeamA"), (TeamB, "TeamB")],
             playaNames: new Dictionary<Guid, string> { [Alice] = "Alice" });
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
 
         var model = await sut.BuildAsync(BuildRequest(), ct: Xunit.TestContext.Current.CancellationToken);
 
@@ -272,7 +280,7 @@ public sealed class VolunteerTrackingExportServiceTests
             shifts: shifts,
             departments: [(TeamA, "TeamA")],
             playaNames: new Dictionary<Guid, string> { [Alice] = "Alice" });
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
 
         var model = await sut.BuildAsync(BuildRequest(), ct: Xunit.TestContext.Current.CancellationToken);
 
@@ -309,7 +317,7 @@ public sealed class VolunteerTrackingExportServiceTests
                 [Bob] = "Bob",
                 [Carol] = "Carol",
             });
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
 
         var model = await sut.BuildAsync(BuildRequest(), ct: Xunit.TestContext.Current.CancellationToken);
 
@@ -340,7 +348,7 @@ public sealed class VolunteerTrackingExportServiceTests
                 [Alice] = "Alice",
                 [Zara] = "Zara",
             });
-        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users);
+        var sut = new VolunteerTrackingExportService(repo, shiftMgmt, burnSettings, users, _audit);
 
         var model = await sut.BuildAsync(BuildRequest(), ct: Xunit.TestContext.Current.CancellationToken);
 

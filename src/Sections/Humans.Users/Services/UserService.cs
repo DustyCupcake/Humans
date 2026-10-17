@@ -6,6 +6,7 @@ using Humans.Base.Interfaces;
 using Humans.Base.Interfaces.Caching;
 using Humans.Onboarding.Contracts;
 using Humans.Users.Data.Repositories;
+using Humans.Users.Domain;
 using Humans.Users.Contracts;
 using Humans.Base.Threading;
 using Humans.Base.Helpers;
@@ -22,7 +23,7 @@ internal sealed class UserService(
     IFileStorage fileStorage,
     IClock clock,
     ILogger<UserService> logger,
-    IAuditLogService audit) : IUserServiceInternal, IUserDataContributor
+    IAuditLogService audit) : IUserManagement, IUserDataContributor
 {
     /// <summary>GDPR export JSON keys for this contributor's data.</summary>
     internal const string Account = "Account";
@@ -169,7 +170,7 @@ internal sealed class UserService(
         throw new NotSupportedException(
             "SearchUsersAsync runs against the cached UserInfo snapshot in " +
             "CachingUserService. If this is being called on the inner UserService " +
-            "it indicates a DI registration mistake — IUserService should resolve " +
+            "it indicates a DI registration mistake — IUserManagement should resolve " +
             "to CachingUserService.");
 
     public async Task<ExpiredDeletionAnonymizationResult?> ApplyExpiredDeletionAnonymizationAsync(
@@ -195,7 +196,7 @@ internal sealed class UserService(
     /// division of labour as <see cref="SearchUsersAsync"/>. Doing the match here too would
     /// re-derive that entire snapshot (<see cref="GetAllUserInfosAsync"/> = six bulk repository
     /// reads) on every miss, once per address, which is what a Google sync run with unknown
-    /// recipients actually hits. Callers resolve <c>IUserService</c> to the decorator; reaching
+    /// recipients actually hits. Callers resolve <c>IUserManagement</c> to the decorator; reaching
     /// the inner service directly is a DI registration mistake.
     /// See nobodies-collective/Humans#1102.
     /// </remarks>
@@ -724,8 +725,10 @@ internal sealed class UserService(
 
         var isConflict = rows.Any(e => e.UserId != userId && e.IsVerified);
 
-        _ = await repo.GetByIdAsync(userId, ct)
+        var user = await repo.GetByIdAsync(userId, ct)
             ?? throw new InvalidOperationException("User not found.");
+        if (UserStateEvaluator.IsTombstone(user))
+            throw new InvalidOperationException("Cannot add email addresses to a deleted or merged account.");
 
         var now = clock.GetCurrentInstant();
         var row = new UserEmail
@@ -745,8 +748,9 @@ internal sealed class UserService(
         };
 
         await repo.AddUserEmailAsync(row, ct);
-        await EnsurePrimaryInvariantAsync(row.UserId, ct);
-        await EnsureGoogleInvariantAsync(row.UserId, ct);
+        // The row has committed; finish its required invariant repairs after a browser disconnect.
+        await EnsurePrimaryInvariantAsync(row.UserId, CancellationToken.None);
+        await EnsureGoogleInvariantAsync(row.UserId, CancellationToken.None);
         return new UserEmailAddResult(row.Id, Added: true, isConflict);
     }
 
@@ -769,8 +773,9 @@ internal sealed class UserService(
             email.IsVerified = true;
             email.UpdatedAt = clock.GetCurrentInstant();
             await repo.UpdateUserEmailAsync(email, ct);
-            await EnsurePrimaryInvariantAsync(userId, ct);
-            await EnsureGoogleInvariantAsync(userId, ct);
+            // Verification has committed; primary / Google repair is part of completing it.
+            await EnsurePrimaryInvariantAsync(userId, CancellationToken.None);
+            await EnsureGoogleInvariantAsync(userId, CancellationToken.None);
             changed = true;
         }
 
@@ -842,8 +847,9 @@ internal sealed class UserService(
 
         if (command.RepairInvariants)
         {
-            await EnsurePrimaryInvariantAsync(userId, ct);
-            await EnsureGoogleInvariantAsync(userId, ct);
+            // Removal has committed; leave the remaining verified addresses usable.
+            await EnsurePrimaryInvariantAsync(userId, CancellationToken.None);
+            await EnsureGoogleInvariantAsync(userId, CancellationToken.None);
         }
 
         return true;
@@ -854,6 +860,11 @@ internal sealed class UserService(
         UserEmailReconcilePlanCommand command,
         CancellationToken ct = default)
     {
+        var user = await repo.GetByIdAsync(userId, ct)
+            ?? throw new InvalidOperationException("User not found.");
+        if (UserStateEvaluator.IsTombstone(user))
+            throw new InvalidOperationException("Cannot reconcile email addresses for a deleted or merged account.");
+
         await repo.ApplyUserEmailReconcilePlanAsync(
             displacedRowToDelete: command.DisplacedRowToDelete,
             rowToDelete: command.RowToDelete,

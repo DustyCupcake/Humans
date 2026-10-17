@@ -38,13 +38,13 @@ Repository: `IHoldedRepository`.
 | SepaPayoutFiles | R/W (append-only writes; read joined for the Article 15 export and for `/Finance/Sepa`) |
 | SepaPayoutTransfers | R/W (appended at generation, `HoldedContactId` captured from the binding at that point; the booking columns are the only update — `SaveSepaTransferBookingAsync` (`BookedAt`/`BookedByUserId`/`HoldedBankMovementId`/`ReconciledAt`), `MarkSepaTransferReconciledAsync` (`ReconciledAt` only, a later reconcile pass). Read per user for the Article 15 export and flattened with the file for `/Finance/Sepa`) |
 
-Cross-section calls via `IBudgetServiceRead` (`budget` in the ctor), `IHoldedService` (the Holded section's
+Cross-section calls via `IBudgetService` (`budget` in the ctor), `IHoldedService` (the Holded section's
 ledger-mirror read surface — `holded` in the ctor; ledger-line /
 account-balance reads for creditor status, ledger, and account listing),
 `IHoldedClient` (Holded's `Contracts/` folder — purchase-document / contact / expense-account
 API calls, plus `PayPurchaseDocumentAsync` for SEPA booking) and `IAuditLogService`
 (one entry per SEPA credit transfer generated, and one per transfer booked).
-Implements `IHoldedFinanceService`, `IHoldedFinanceAdminService`
+Implements `IHoldedFinanceManagement` (the public `IHoldedFinanceService` and `IHoldedFinanceWrite`), `IHoldedFinanceAdminService`
 and `IUserDataContributor`.
 Injects `IMemoryCache` for the 2-minute Holded contact-list entry
 (`CacheKeys.HoldedContacts`) and `IOptions<SepaOptions>` for the organisation's
@@ -57,7 +57,7 @@ Holded section's `IHoldedAdminService`. `GetConnectorOverviewAsync` reads `Holde
 `HoldedCategoryMap`, `HoldedExpenseDocs` (via `GetAllDocsAsync` — the
 unmatched and matched-for-year reads are each a filtered slice and neither
 composes into "all docs") and `HoldedCreditorContacts`, plus
-`IBudgetServiceRead` for category names. **No `IHoldedClient` call** — the
+`IBudgetService` for category names. **No `IHoldedClient` call** — the
 index must not inherit the connector's 30 s timeout
 (nobodies-collective/Humans#976, #1000). `GetProvisioningPlanAsync` /
 `ProvisionAsync` (`/Finance/HoldedAccounts`) and `SetCreditorContactAsync` /

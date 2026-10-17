@@ -16,9 +16,9 @@ can read the association's statutes.
 
 | Shape | Question it answers | Surface |
 |---|---|---|
-| Per-user signed-state | "Which versions has this user signed?" | `IConsentServiceRead`: `GetConsentedVersionIdsAsync`, `GetConsentMapForUsersAsync`, `GetRequiredConsentRowsForUserAsync`, `GetPendingDocumentNamesAsync`, `GetConsentRecordCountAsync` — projections of one fact table; the first three per-user cached, the last two pass-through to the inner service |
+| Per-user signed-state | "Which versions has this user signed?" | `IConsentService`: `GetConsentedVersionIdsAsync`, `GetConsentMapForUsersAsync`, `GetRequiredConsentRowsForUserAsync`, `GetPendingDocumentNamesAsync`, `GetConsentRecordCountAsync` — projections of one fact table; the first three per-user cached, the last two pass-through to the inner service |
 | Review & sign | "Show one document; record my agreement" | `GetConsentReviewDetailAsync` + `IConsentSubmission.SubmitConsentAsync`; `/Consent` GET, `/Consent/Review` GET, `/Consent/Submit` POST |
-| Required-document set | "What is required, per team, right now?" | `ILegalDocumentSyncServiceRead` + internal dashboard/version reads — all views over one cached active+required set |
+| Required-document set | "What is required, per team, right now?" | `ILegalDocumentSyncService` + internal dashboard/version reads — all views over one cached active+required set |
 | Keep documents current | "Has the source changed? Pull it." | internal sync surface (`SyncAllDocumentsAsync`, `SyncDocumentAsync`), `ILegalDocumentSyncRunner` (job body), the sync + reminder Hangfire jobs at 04:00 |
 | Admin CRUD | "Create/edit/archive/sync a document" | `IAdminLegalDocumentService`, the routes under `/Legal/Admin/Documents` |
 | Public statutes | "Show the published statutes/terms" | `ILegalDocumentService`, `/Legal/{slug?}`, GitHub-direct, no DB |
@@ -78,7 +78,7 @@ contract fold-inward).
   this section only feeds it. Docs describe the joint flow — keep the boundary in mind when
   editing either.
 - `ILegalDocumentSyncRunner`'s consumers all live in this section, so it could fold inward
-  (noted in the Contracts csproj); `ILegalDocumentSyncServiceRead` cannot yet — Governance's
+  (noted in the Contracts csproj); `ILegalDocumentSyncService` cannot yet — Governance's
   `MembershipCalculator` injects it. Shrinking contract surface needs Peter.
 
 ## Deliberately not done
@@ -106,11 +106,11 @@ contract fold-inward).
 - **`_ConsentReviewBody` uses `ResourceManager` directly** to hand per-language checkbox
   strings to inline JS that re-localises when the reader switches language tabs.
 - **Jobs are `public`** (HUM0034 exception) because Shell names the concrete types at
-  registration; `SendReConsentReminderJob` carries `[CrossSectionWrite]` for its cooldown
-  stamp on Users.
+  registration; `SendReConsentReminderJob` stamps its cooldown
+  on Users.
 - **Post-submit threshold check is a controller peer-call** (`ConsentController.Submit` →
   `IOnboardingIntake`), not a service call — avoids the inverted arrow into Onboarding.
-- **`ConsentService` takes `IServiceProvider`** to resolve `IMembershipCalculatorRead`
+- **`ConsentService` takes `IServiceProvider`** to resolve `IMembershipCalculator`
   lazily — Governance depends back on Consent, so the direct constructor arrow would cycle.
 - **`ConsentResource` must stay `namespace Humans.Consent`** and public (localization
   manifest naming + boot diagnostic via exported types).

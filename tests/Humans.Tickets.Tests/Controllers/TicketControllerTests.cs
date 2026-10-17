@@ -36,7 +36,7 @@ public class TicketControllerTests
         var backfill = Substitute.For<IUserParticipationBackfillService>();
         backfill.BackfillFromCsvAsync(2026, "input", actorId, default, confirmed)
             .Returns(new ParticipationBackfillResult(true, "Processed", 1, confirmed ? null : "parsed rows"));
-        var queries = Substitute.For<ITicketService>();
+        var queries = Substitute.For<ITicketManagement>();
         var dashboard = new TicketDashboardPageBuilder(Substitute.For<ITicketVendorService>(),
             Options.Create(new TicketVendorSettings()), queries, NullLogger<TicketDashboardPageBuilder>.Instance);
         var http = new DefaultHttpContext
@@ -45,7 +45,7 @@ public class TicketControllerTests
                 ? [new Claim(ClaimTypes.NameIdentifier, actorId.ToString())] : [], "Test"))
         };
         var controller = new TicketController(queries, Substitute.For<ITicketSyncService>(),
-            backfill, dashboard, Substitute.For<IUserServiceRead>(), NullLogger<TicketController>.Instance)
+            backfill, dashboard, Substitute.For<IUserService>(), NullLogger<TicketController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = http },
             TempData = new TempDataDictionary(http, Substitute.For<ITempDataProvider>())
@@ -84,11 +84,11 @@ public class TicketControllerTests
         var backfill = Substitute.For<IUserParticipationBackfillService>();
         backfill.GetDefaultYearAsync(aborted.Token)
             .Returns(Task.FromException<int>(new OperationCanceledException(aborted.Token)));
-        var queries = Substitute.For<ITicketService>();
+        var queries = Substitute.For<ITicketManagement>();
         var dashboard = new TicketDashboardPageBuilder(Substitute.For<ITicketVendorService>(),
             Options.Create(new TicketVendorSettings()), queries, NullLogger<TicketDashboardPageBuilder>.Instance);
         var controller = new TicketController(queries, Substitute.For<ITicketSyncService>(),
-            backfill, dashboard, Substitute.For<IUserServiceRead>(), NullLogger<TicketController>.Instance)
+            backfill, dashboard, Substitute.For<IUserService>(), NullLogger<TicketController>.Instance)
         {
             ControllerContext = new ControllerContext
             {
@@ -109,13 +109,13 @@ public class TicketControllerTests
     public async Task PersonalDataExport_RequiresAnActorAndPassesItToTheAuditedService(bool attendees, bool hasActor)
     {
         var actor = Guid.NewGuid();
-        var queries = Substitute.For<ITicketService>();
+        var queries = Substitute.For<ITicketManagement>();
         queries.GetAttendeeExportDataAsync(actor).Returns([]);
         queries.GetOrderExportDataAsync(actor).Returns([]);
         var dashboard = new TicketDashboardPageBuilder(Substitute.For<ITicketVendorService>(),
             Options.Create(new TicketVendorSettings()), queries, NullLogger<TicketDashboardPageBuilder>.Instance);
         var controller = new TicketController(queries, Substitute.For<ITicketSyncService>(),
-            Substitute.For<IUserParticipationBackfillService>(), dashboard, Substitute.For<IUserServiceRead>(),
+            Substitute.For<IUserParticipationBackfillService>(), dashboard, Substitute.For<IUserService>(),
             NullLogger<TicketController>.Instance)
         {
             ControllerContext = new ControllerContext

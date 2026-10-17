@@ -20,9 +20,9 @@ namespace Humans.Store.Controllers;
 [Route("Store")]
 internal sealed class StoreController(
     Service storeService,
-    ICampServiceRead campService,
+    ICampService campService,
     IAuthorizationService authService,
-    IUserServiceRead userService,
+    IUserService userService,
     ILogger<StoreController> logger,
     IStringLocalizer<StoreResource> localizer) : HumansControllerBase(userService)
 {

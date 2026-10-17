@@ -3,7 +3,7 @@ using Humans.Base.Interfaces;
 namespace Humans.Shifts.Contracts;
 
 /// <summary>
-/// Read-only supplier for the event-cycle ("burn") settings (Nowhere 2026,
+/// Read-only supplier for the event-cycle ("burn") settings (Elsewhere 2026,
 /// etc.) as a <see cref="BurnSettingsInfo"/> DTO, without touching
 /// <c>DbContext.EventSettings</c> directly (design-rules §2c,
 /// <c>memory/architecture/no-cross-section-ef-joins.md</c>). The app-wide
@@ -15,7 +15,7 @@ namespace Humans.Shifts.Contracts;
 ///
 /// <para>
 /// Mutations + Shifts-internal reads (flags, caps, rotas) stay on
-/// <c>IShiftManagementService</c> — the Shifts section is the single
+/// <c>IShiftManagement</c> — the Shifts section is the single
 /// writer of its own local <c>event_settings</c> knobs row.
 /// </para>
 /// </summary>

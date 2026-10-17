@@ -33,6 +33,15 @@
                         <div class="form-text">@Localizer["Expenses_ForMemberHelp"]</div>
                     </div>
 
+                    @if (Model.Grants.Count > 0)
+                    {
+                        <partial name="_PreapprovalSelect" model="@(new PreapprovalSelectModel(Model.Grants, Model.PreapprovalGrantId, "HoldedAccountNumber"))" />
+                        @if (Model.Grants.FirstOrDefault(g => g.Id == Model.PreapprovalGrantId) is { } selected)
+                        {
+                            <partial name="_PreapprovalBanner" model="@(new PreapprovalBannerModel(selected, Model.Today, ShowDeadline: true))" />
+                        }
+                    }
+
                     @* Budget-category accounts route through the team coordinator; other accounts go
                        straight to Finance. The service derives the category from the account. *@
                     <div class="mb-3">
@@ -56,8 +65,9 @@
                     </div>
 
                     <div class="mb-3">
-                        <label asp-for="Note" class="form-label">@Localizer["Expenses_ColSubject"] <small class="text-muted">@Localizer["Expenses_OptionalMaxChars"]</small></label>
+                        <label asp-for="Note" class="form-label">@Localizer["Expenses_ColSubject"]</label>
                         <textarea asp-for="Note" class="form-control" rows="3" maxlength="500" placeholder="@Localizer["Expenses_SubjectPlaceholder"]"></textarea>
+                        <div class="form-text">@Localizer["Expenses_SubjectHelp"]</div>
                         <span asp-validation-for="Note" class="text-danger small"></span>
                     </div>
 

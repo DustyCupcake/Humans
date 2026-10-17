@@ -20,10 +20,10 @@ internal sealed record ShiftAdminPageRequest(
     Instant Now);
 
 internal sealed class ShiftAdminPageBuilder(
-    IShiftManagementService shiftManagement,
-    IMembershipCalculatorRead membership,
-    IUserServiceRead userService,
-    ITeamServiceRead teamService)
+    IShiftManagement shiftManagement,
+    IMembershipCalculator membership,
+    IUserService userService,
+    ITeamService teamService)
 {
     public async Task<ShiftAdminViewModel> BuildAsync(ShiftAdminPageRequest request)
     {

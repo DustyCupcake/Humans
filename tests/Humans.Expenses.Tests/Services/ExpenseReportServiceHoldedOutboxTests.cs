@@ -32,10 +32,11 @@ public class ExpenseReportServiceHoldedOutboxTests
     private const int BatchSize = 100;
 
     private readonly IExpenseRepository _repo;
-    private readonly IBudgetServiceRead _budgetService;
+    private readonly IBudgetService _budgetService;
     private readonly IUserService _userService;
     private readonly IHoldedClient _holdedClient;
     private readonly IHoldedFinanceService _holdedFinance;
+    private readonly IHoldedFinanceWrite _holdedFinanceWrite;
     private readonly IFileStorage _fileStorage;
     private readonly IAuditLogService _auditLog = Substitute.For<IAuditLogService>();
     private readonly FakeClock _clock;
@@ -63,7 +64,7 @@ public class ExpenseReportServiceHoldedOutboxTests
             []);
 
         _repo = Substitute.For<IExpenseRepository>();
-        _budgetService = Substitute.For<IBudgetServiceRead>();
+        _budgetService = Substitute.For<IBudgetService>();
         _userService = Substitute.For<IUserService>();
         _holdedClient = Substitute.For<IHoldedClient>();
         // DrainHoldedOutboxAsync returns early unless IHoldedClient.IsConfigured, so every test
@@ -83,7 +84,8 @@ public class ExpenseReportServiceHoldedOutboxTests
         // Contact enrichment is Finance's: ExpenseReportService delegates to
         // EnsureCreditorContactAsync for the contact id, then resolves its supplier-account number.
         _holdedFinance = Substitute.For<IHoldedFinanceService>();
-        _holdedFinance.EnsureCreditorContactAsync(
+        _holdedFinanceWrite = Substitute.For<IHoldedFinanceWrite>();
+        _holdedFinanceWrite.EnsureCreditorContactAsync(
                 Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(),
                 Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns("holded-contact-1");
@@ -99,19 +101,21 @@ public class ExpenseReportServiceHoldedOutboxTests
             _repo,
             _fileStorage,
             _budgetService,
-            Substitute.For<ITeamServiceRead>(),
-            _userService,
+            Substitute.For<ITeamService>(),
+            _userService, Substitute.For<IUserWrite>(),
             Substitute.For<IUserEmailService>(),
             Substitute.For<IEmailService>(),
             TestExpensesEmails.Create(),
             _auditLog,
             _holdedClient,
             _holdedFinance,
+            Substitute.For<Humans.Preapprovals.Contracts.IPreapprovalService>(),
+            Substitute.For<Humans.Preapprovals.Contracts.IPreapprovalWrite>(),
             _clock,
             Substitute.For<ILogger<ExpenseReportService>>(),
             Options.Create(new TravelReimbursementConfig()));
         _backgroundProcessor = new ExpenseReportBackgroundProcessor(
-            _repo, _fileStorage, _userService, _holdedClient, _holdedFinance, _auditLog, _clock,
+            _repo, _fileStorage, _userService, _holdedClient, _holdedFinance, _holdedFinanceWrite, _auditLog, _clock,
             NullLogger<ExpenseReportBackgroundProcessor>.Instance);
     }
 
@@ -783,6 +787,42 @@ public class ExpenseReportServiceHoldedOutboxTests
             Arg.Any<string>(), null, null);
     }
 
+    [HumansTheory]
+    [Xunit.InlineData(0)]
+    [Xunit.InlineData(1)]
+    public async Task CreateIncomingDoc_LongUnicodeSummary_RemainsValidUtf8(int padding)
+    {
+        var description = new string('a', padding) + string.Concat(Enumerable.Repeat("😀", 249));
+        var report = MakeReport() with
+        {
+            Total = 800m,
+            MaxAmount = 1m,
+            Lines = Enumerable.Range(0, 8).Select(i =>
+                MakeLineWithAttachment(Guid.NewGuid(), $"receipt-{i}.pdf", i, holdedUploadedAt: null)
+                    with
+                { Description = description, Amount = 100m }).ToList(),
+        };
+        var outboxEvent = MakeEvent(report.Id, HoldedExpenseOutboxEventType.CreateIncomingDoc);
+        _repo.GetUnprocessedOutboxAsync(Arg.Any<Instant>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([outboxEvent]);
+        _repo.GetByIdAsync(report.Id, Arg.Any<CancellationToken>()).Returns(report);
+        _holdedClient.CreatePurchaseDocumentAsync(Arg.Any<HoldedPurchaseDocumentInput>(), Arg.Any<CancellationToken>())
+            .Returns("doc-emoji");
+        _fileStorage.TryReadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new byte[] { 1 });
+
+        await _backgroundProcessor.DrainHoldedOutboxAsync(BatchSize, Xunit.TestContext.Current.CancellationToken);
+
+        var audit = _auditLog.ReceivedCalls().Single(c =>
+            string.Equals(c.GetMethodInfo().Name, nameof(IAuditLogService.LogAsync), StringComparison.Ordinal)
+            && Equals(c.GetArguments()[0], AuditAction.ExpenseHoldedPushed));
+        var summary = (string)audit.GetArguments()[3]!;
+        summary.Length.Should().BeLessThanOrEqualTo(3500);
+        summary.Should().EndWith("…");
+        Action encode = () => new System.Text.UTF8Encoding(false, true).GetBytes(summary);
+        encode.Should().NotThrow();
+        await _repo.Received(1).MarkOutboxProcessedAsync(outboxEvent.Id, Now, Arg.Any<CancellationToken>());
+    }
+
     // ─── UpdateIncomingDocTag: v2 has no tag-update endpoint, so this just drains ──────────
 
     [HumansFact]
@@ -1219,7 +1259,7 @@ public class ExpenseReportServiceHoldedOutboxTests
         // Use a logger that captures structured log args
         var logger = Substitute.For<ILogger<ExpenseReportBackgroundProcessor>>();
         var sut = new ExpenseReportBackgroundProcessor(
-            _repo, _fileStorage, _userService, _holdedClient, _holdedFinance,
+            _repo, _fileStorage, _userService, _holdedClient, _holdedFinance, _holdedFinanceWrite,
             Substitute.For<IAuditLogService>(), _clock, logger);
 
         var report = MakeReport() with { PayeeIban = "ES9121000418450200051332" };
@@ -1264,7 +1304,7 @@ public class ExpenseReportServiceHoldedOutboxTests
 
         await _backgroundProcessor.DrainHoldedOutboxAsync(BatchSize, Xunit.TestContext.Current.CancellationToken);
 
-        await _holdedFinance.Received(1).EnsureCreditorContactAsync(
+        await _holdedFinanceWrite.Received(1).EnsureCreditorContactAsync(
             survivorId, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(),
             Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
         await _repo.Received(1).GetForSubmitterAsync(survivorId, Arg.Any<CancellationToken>());

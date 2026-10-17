@@ -1,4 +1,8 @@
 using AwesomeAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using NSubstitute;
+using NodaTime;
 using Humans.Tickets.Contracts;
 using Humans.Tickets.Services;
 using Humans.Tickets.Services.Stores;
@@ -24,24 +28,9 @@ public class TicketQueryArchitectureTests
     // ── CachingTicketQueryService (decorator) ────────────────────────────────
 
     [HumansFact]
-    public void CachingTicketQueryService_ImplementsITicketService()
+    public void CachingTicketQueryService_ImplementsITicketManagement()
     {
-        typeof(ITicketService).IsAssignableFrom(typeof(CachingTicketQueryService))
-            .Should().BeTrue();
-    }
-
-    [HumansFact]
-    public void ITicketService_InheritsITicketServiceRead()
-    {
-        typeof(ITicketServiceRead).IsAssignableFrom(typeof(ITicketService))
-            .Should().BeTrue(
-                because: "ITicketService is the full Tickets surface; external sections inject the narrow ITicketServiceRead");
-    }
-
-    [HumansFact]
-    public void CachingTicketQueryService_ImplementsITicketServiceRead()
-    {
-        typeof(ITicketServiceRead).IsAssignableFrom(typeof(CachingTicketQueryService))
+        typeof(ITicketManagement).IsAssignableFrom(typeof(CachingTicketQueryService))
             .Should().BeTrue();
     }
 
@@ -87,5 +76,30 @@ public class TicketQueryArchitectureTests
 
         paramTypes.Should().Contain(typeof(ITicketCacheInvalidator),
             because: "TicketSyncService drives InvalidateAll (post-sync) and InvalidateAfterUserMerge (ReassignAsync) — it must take the seam through DI so the decorator owns cache eviction");
+    }
+
+    /// <summary>
+    /// Asserts that <see cref="ITicketManagement"/> and <see cref="ITicketService"/> resolve to the same
+    /// singleton from the production DI registration — <c>Section.Register</c>
+    /// itself, not a test-built mirror of it.
+    /// </summary>
+    [HumansFact]
+    public void ITicketManagement_And_ITicketService_ResolveToSameInstance()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IClock>());
+        new Section().Register(services, new ConfigurationBuilder().Build());
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var fromManagement = scope.ServiceProvider.GetRequiredService<ITicketManagement>();
+        var fromPublic = scope.ServiceProvider.GetRequiredService<ITicketService>();
+
+        fromManagement.Should().BeOfType<CachingTicketQueryService>(
+            because: "the cache decorator is the section's public face");
+        ReferenceEquals(fromManagement, fromPublic).Should().BeTrue(
+            because: "both interfaces must expose the same singleton so the cache is shared");
     }
 }

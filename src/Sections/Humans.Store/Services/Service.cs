@@ -19,8 +19,8 @@ namespace Humans.Store.Services;
 internal sealed class Service(
     IStoreRepository repo,
     IAuditLogService audit,
-    ICampServiceRead campService,
-    ITeamServiceRead teamService,
+    ICampService campService,
+    ITeamService teamService,
     IClock clock,
     ISettingsService settingsService,
     IStripeService stripeService,

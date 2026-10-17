@@ -44,14 +44,14 @@ public sealed class TeamServiceEarlyEntryTests
             _repo,
             _audit,
             Substitute.For<INotificationEmitter>(),
-            Substitute.For<IShiftManagementService>(),
+            Substitute.For<IShiftManagement>(),
             _meterInvalidator,
             Substitute.For<IShiftAuthorizationInvalidator>(),
             Substitute.For<IAdminAuthorizationService>(),
             _eeInvalidator,
             new ServiceLocatorBuilder()
                 .With<IGoogleSyncOutboxService>()
-                .With<ITeamResourceServiceRead>()
+                .With<ITeamResourceService>()
                 .Build(),
             _clock,
             NullLogger<TeamService>.Instance);

@@ -1,6 +1,5 @@
 <!-- freshness:triggers
   src/Sections/Humans.Preapprovals/**
-  src/Sections/Humans.Preapprovals.Contracts/**
   src/Sections/Humans.Expenses/Services/ExpenseReportService.cs
   src/Sections/Humans.Expenses/Domain/ExpenseReport.cs
   src/Sections/Humans.Finance.Contracts/**
@@ -65,7 +64,7 @@ account has nowhere to go on the report. Phase 2 ships first, on its own PR.
 | Kind | enum `ProgramKind` | `FixedPerPerson` (every grant is `PerPersonAmount`) / `PerGrantAmount` (amount set on each grant) |
 | PerPersonAmount | decimal(18,2)? | Required when `FixedPerPerson`; refused otherwise. Must be greater than zero |
 | TotalCeiling | decimal(18,2)? | Null = no ceiling. Creativity: 25 000 → 50 000 → 60 000, edited in place; each edit audited so the history is in the log |
-| HoldedAccountNumber | int | From `IHoldedFinanceServiceRead.ListExpenseAccountsAsync(activeOnly: true)` |
+| HoldedAccountNumber | int | From `IHoldedFinanceService.ListExpenseAccountsAsync(activeOnly: true)` |
 | HoldedAccountId | string(64) | |
 | AcceptsApplications | bool | Public apply page open |
 | ClaimBy | LocalDate | Claim deadline. Required. Reports must be submitted on or before this date (Europe/Madrid, end of day). Editable at any time by Board / FinanceAdmin, audited with old and new value. The edit also resolves each `Open` grant holder's `pre-grant:{id}` notification and emits a new one with the new date, so the stale prompt never sits beside the replacement. Reminder markers carry the deadline they announced (see `pre_reminders_sent`), so the reminders run again against the new date with nothing to clear. Pushing it back needs nothing undone: an `Open` grant past the old date is simply claimable again |
@@ -169,12 +168,12 @@ The program page always shows, from the grants as they stand: **granted** (Open 
 Consumed), **consumed**, **not claimed** (Revoked, plus `Open` past `ClaimBy`), **requested** (Applied) and the
 ceiling. These are sums over frozen rows, never stored and never adjusted when a program closes.
 
-## Public surface (`Humans.Preapprovals.Contracts`)
+## Surface
 
-Narrowest contract that serves Expenses, per the hard rules.
+**Today the whole surface is internal** (no other section consumes Preapprovals yet; `IPreapprovalService` is the 2-member read face, `IPreapprovalManagement : IPreapprovalService` the rest, in `Humans.Preapprovals.Services`). When Expenses consumes it, the narrowest contract that serves Expenses becomes public in a `Contracts/` folder, per the hard rules. The shape below is that target.
 
 ```csharp
-public interface IPreapprovalServiceRead
+public interface IPreapprovalService
 {
     // Grants the member may file against today: Open and ClaimBy not passed.
     Task<IReadOnlyList<GrantOption>> ListClaimableForUserAsync(Guid userId, CancellationToken ct);
@@ -185,19 +184,17 @@ public sealed record GrantOption(
     Guid Id, string ProgramName, string? Label, decimal MaxAmount,
     int HoldedAccountNumber, string HoldedAccountId, LocalDate ClaimBy, GrantStatus Status);
 
-public interface IPreapprovalService : IApplicationService, IPreapprovalServiceRead
-{
-    // Called by Expenses only. Each one audited with the report id.
-    Task<GrantStamp> ClaimAsync(Guid grantId, Guid expenseReportId, Guid actorUserId, CancellationToken ct); // Open → Claimed; idempotent for the same report; throws unless claimable
-    Task ReleaseAsync(Guid grantId, Guid expenseReportId, Guid actorUserId, CancellationToken ct); // Claimed → Open (withdraw before approval)
-    Task ConsumeAsync(Guid grantId, Guid expenseReportId, Guid actorUserId, CancellationToken ct); // Claimed → Consumed (approve)
-}
+// Called by Expenses only; today these three are members of the internal IPreapprovalManagement.
+// Each one audited with the report id.
+Task<GrantStamp> ClaimAsync(Guid grantId, Guid expenseReportId, Guid actorUserId, CancellationToken ct); // Open → Claimed; idempotent for the same report; throws unless claimable
+Task ReleaseAsync(Guid grantId, Guid expenseReportId, Guid actorUserId, CancellationToken ct); // Claimed → Open (withdraw before approval)
+Task ConsumeAsync(Guid grantId, Guid expenseReportId, Guid actorUserId, CancellationToken ct); // Claimed → Consumed (approve)
 ```
 
 Program and manager administration, issuing, applying, approving, declining and revoking live on
-an `internal interface IPreapprovalManagementService : IPreapprovalService` inside the section
-(the `ITeamManagementService : ITeamService` pattern), which the section's own controllers
-inject. Nothing outside the section sees them. `.Contracts` is a leaf project because Expenses →
+an `internal interface IPreapprovalManagement : IPreapprovalService` inside the section
+(the `I<Section>Management` pattern), which the section's own controllers
+inject. Nothing outside the section sees them. A `.Contracts` leaf project would be needed only if Expenses →
 Preapprovals and (later) Creativity → Preapprovals must not pull the section itself; when
 Creativity exists it gets one narrow issue command on the public contract, not the whole
 management surface.
@@ -367,7 +364,7 @@ Documented in [background-jobs.md](background-jobs.md) when built.
 - Partial draw-down of one grant across several reports. One grant, one report. A creativity
   lead who needs two reports gets two grants.
 - Spent-vs-granted from the Holded ledger on the program page. Later pull via
-  `IHoldedFinanceServiceRead.GetCreditorLedgerAsync`, same posture as Workgroups.
+  `IHoldedFinanceService.GetCreditorLedgerAsync`, same posture as Workgroups.
 - A Creativity section. When it exists it gets one narrow command on the public contract
   (`IssueAsync(programId, beneficiaryUserId, amount, label)`, added then, not now); it never
   sees the management interface.
@@ -379,8 +376,8 @@ Documented in [background-jobs.md](background-jobs.md) when built.
 ## Delivery order
 
 1. **workgroup-budget Phase 2** in Expenses (account on the report, nullable category). Own PR.
-2. **Preapprovals section**: DbContext + migration, entities, service, repository, contracts
-   project, manager/member UI, notifications, audit, GDPR contributor, reminder job, `Docs/Preapprovals.md`
+2. **Preapprovals section**: DbContext + migration, entities, service, repository,
+   manager/member UI, notifications, audit, GDPR contributor, reminder job, `Docs/Preapprovals.md`
    per `SECTION-TEMPLATE.md`, `tests/Humans.Preapprovals.Tests`. Own PR. Usable standalone: a
    manager can already issue the 50 offsite grants and members can see their deadline.
 3. **Expenses hook**: `PreapprovalGrantId`, New-form grant picker, claim/release/consume calls,

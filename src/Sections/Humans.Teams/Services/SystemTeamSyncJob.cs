@@ -1,5 +1,4 @@
 using Humans.Base.Extensions;
-using Humans.Base.Attributes;
 using Humans.GoogleIntegration.Contracts;
 using Humans.Auth.Contracts;
 using Hangfire;
@@ -26,13 +25,13 @@ namespace Humans.Teams.Services;
 /// their contracts leaves.
 /// </remarks>
 [DisableConcurrentExecution(timeoutInSeconds: 300)]
-[CrossSectionWrite("Syncs team Google resources and downgrades expired membership tiers.")]
 internal sealed class SystemTeamSyncJob(
     ITeamManagementService teamService,
     IUserService userService,
+    IUserWrite userWrite,
     ICampLeadDirectory campLeadDirectory,
     IServiceProvider serviceProvider,
-    IGoogleSyncService googleSyncService,
+    IGoogleSyncWrite googleSyncService,
     IGoogleGroupSync googleGroupSync,
     IGoogleDriveActivityClient googleClient,
     IAuditLogService auditLogService,
@@ -45,17 +44,17 @@ internal sealed class SystemTeamSyncJob(
 {
     // Lazy via IServiceProvider to break DI cycles (these services depend on ISystemTeamSync).
 
-    private IApplicationServiceRead ApplicationDecisionService =>
-        serviceProvider.GetRequiredService<IApplicationServiceRead>();
+    private IGovernanceService ApplicationDecisionService =>
+        serviceProvider.GetRequiredService<IGovernanceService>();
 
-    private IRoleAssignmentServiceRead RoleAssignmentService =>
-        serviceProvider.GetRequiredService<IRoleAssignmentServiceRead>();
+    private IRoleAssignmentService RoleAssignmentService =>
+        serviceProvider.GetRequiredService<IRoleAssignmentService>();
 
-    private ITeamResourceServiceRead TeamResourceService =>
-        serviceProvider.GetRequiredService<ITeamResourceServiceRead>();
+    private ITeamResourceService TeamResourceService =>
+        serviceProvider.GetRequiredService<ITeamResourceService>();
 
-    private IMembershipCalculatorRead MembershipCalculator =>
-        serviceProvider.GetRequiredService<IMembershipCalculatorRead>();
+    private IMembershipCalculator MembershipCalculator =>
+        serviceProvider.GetRequiredService<IMembershipCalculator>();
 
     /// <summary>
     /// Executes the system team sync job and returns a report of what changed.
@@ -331,7 +330,7 @@ internal sealed class SystemTeamSyncJob(
         var otherTierByUser = await ApplicationDecisionService
             .GetOtherActiveTierAssignmentsAsync(tier, today, cancellationToken);
 
-        var downgrades = await userService.DowngradeMembershipTierForExpiredAsync(
+        var downgrades = await userWrite.DowngradeMembershipTierForExpiredAsync(
             tier, applicationUserIds, otherTierByUser, todayInstant, cancellationToken);
 
         if (downgrades.Count > 0)

@@ -13,14 +13,18 @@ public sealed record ExpenseReportDto
     /// <summary>Null when the account has no budget-category mapping (no coordinator route).</summary>
     public required Guid? BudgetCategoryId { get; init; }
     public required Guid? BudgetYearId { get; init; }
+    /// <summary>Pre-approval grant the report files against, or null. A pre-approved report books
+    /// to the grant's account with no budget category (no coordinator route).</summary>
+    public Guid? PreapprovalGrantId { get; init; }
     public required ExpenseReportStatus Status { get; init; }
     public string? Note { get; init; }
     public required string PayeeName { get; init; }
     public required string PayeeIban { get; init; }
+    /// <summary>The accepted total: top-level line amounts, declined lines excluded.</summary>
     public required decimal Total { get; init; }
     /// <summary>Cap the deciders authorized, or null for no cap.</summary>
     public decimal? MaxAmount { get; init; }
-    /// <summary>What is actually reimbursed: the receipts total, capped. The only amount payment math may use.</summary>
+    /// <summary>What is actually reimbursed: the accepted total, capped. The only amount payment math may use.</summary>
     public decimal Payable => MaxAmount is { } cap && cap < Total ? cap : Total;
     public Instant? SubmittedAt { get; init; }
     public Guid? CoordinatorEndorsedByUserId { get; init; }

@@ -22,9 +22,9 @@ namespace Humans.Tickets.Services;
 internal sealed class TicketTransferService(
     ITicketTransferRepository transferRepo,
     ITicketRepository ticketRepo,
-    ITicketServiceRead holdings,
+    ITicketService holdings,
     ITicketVendorService vendor,
-    IUserServiceRead userService,
+    IUserService userService,
     IUserEmailService userEmailService,
     IEmailService emailService,
     TicketsEmails emailMessages,
@@ -77,7 +77,7 @@ internal sealed class TicketTransferService(
         }
 
         var receiverInfo = await userService.GetUserInfoAsync(receiverUserId, ct);
-        if (receiverInfo is null || !receiverInfo.HasRequiredNameFields) return null;
+        if (receiverInfo is null || receiverInfo.Id != receiverUserId || !receiverInfo.HasRequiredNameFields) return null;
         var receiverEmail = await userEmailService.GetPrimaryEmailAsync(receiverUserId, ct);
         if (string.IsNullOrWhiteSpace(receiverEmail)) return null;
 
@@ -113,7 +113,7 @@ internal sealed class TicketTransferService(
             return TicketTransferMutationResult.Refused("TicketTransfer_CheckedIn");
 
         var receiverInfo = await userService.GetUserInfoAsync(dto.ReceiverUserId, ct);
-        if (receiverInfo is null)
+        if (receiverInfo is null || receiverInfo.Id != dto.ReceiverUserId)
             return TicketTransferMutationResult.Refused("Tickets_TicketTransfer_InvalidSelection");
         // Defense-in-depth: receiver MUST have legal name; mirror not-found message to avoid leaking why.
         if (!receiverInfo.HasRequiredNameFields)

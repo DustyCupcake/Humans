@@ -37,21 +37,21 @@ public class HoldedFinanceServiceTests
 
     private readonly IHoldedRepository _repo = Substitute.For<IHoldedRepository>();
     private readonly IHoldedClient _client = Substitute.For<IHoldedClient>();
-    private readonly IBudgetServiceRead _budget = Substitute.For<IBudgetServiceRead>();
+    private readonly IBudgetService _budget = Substitute.For<IBudgetService>();
     private readonly IHoldedService _holded = Substitute.For<IHoldedService>();
     private readonly FakeClock _clock = new(FixedNow);
     private readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
     private readonly IAuditLogService _audit = Substitute.For<IAuditLogService>();
     private static readonly Guid Admin = Guid.NewGuid();
-    private readonly IUserServiceRead _users = NoUsers();
+    private readonly IUserService _users = NoUsers();
     private readonly IUserEmailService _userEmails = Substitute.For<IUserEmailService>();
     private readonly IEmailService _emailService = Substitute.For<IEmailService>();
     private readonly SepaOptions _sepa = new();
 
     /// <summary>An unstubbed <c>ValueTask&lt;IReadOnlyDictionary&gt;</c> substitute yields null, not an empty map.</summary>
-    private static IUserServiceRead NoUsers()
+    private static IUserService NoUsers()
     {
-        var users = Substitute.For<IUserServiceRead>();
+        var users = Substitute.For<IUserService>();
         users.GetUserInfosAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<Guid, UserInfo>());
         return users;
@@ -1876,6 +1876,68 @@ public class HoldedFinanceServiceTests
         var json = JsonSerializer.Serialize(slice.Data);
         json.Should().Contain("40000004").And.Contain("contact-9").And.Contain("Manual");
         json.Should().NotContain("CreatedAt").And.NotContain("UpdatedAt");
+        JsonSerializer.SerializeToElement(slice.Data).ValueKind.Should().Be(JsonValueKind.Object);
+    }
+
+    [HumansTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ContributeForUser_IncludesBindingsAndPayoutsAcrossMergedAccounts(bool archivedId)
+    {
+        var survivorId = Guid.NewGuid();
+        var sourceId = Guid.NewGuid();
+        var requestedId = archivedId ? sourceId : survivorId;
+        var info = UserInfo.Create(
+            new User { Id = survivorId, BurnerName = "Survivor", CreatedAt = FixedNow },
+            [], [], [], null, []) with
+        { MergedUserIds = [sourceId] };
+        _users.GetUserInfoAsync(requestedId, Arg.Any<CancellationToken>()).Returns(info);
+        foreach (var (id, contact) in new[] { (survivorId, "survivor-contact"), (sourceId, "source-contact") })
+        {
+            _repo.GetCreditorContactByUserAsync(id, Arg.Any<CancellationToken>()).Returns(
+                new HoldedCreditorContact { UserId = id, HoldedContactId = contact, SupplierAccountNum = 40000004 });
+            _repo.GetSepaPayoutsForUserAsync(id, Arg.Any<CancellationToken>()).Returns(
+                new List<SepaPayoutExportRow>
+                {
+                    new(FixedNow, contact + ".xml", 40000004, contact, "Payee", "ES79****789", 12.34m, null, null, null)
+                });
+        }
+
+        var slices = await MakeService().ContributeForUserAsync(requestedId, Xunit.TestContext.Current.CancellationToken);
+
+        var bindings = JsonSerializer.SerializeToElement(slices.Single(s => string.Equals(s.SectionName, Service.HoldedCreditorAccount, StringComparison.Ordinal)).Data);
+        bindings.ValueKind.Should().Be(JsonValueKind.Object);
+        bindings.GetProperty("HoldedContactId").GetString().Should().Be(archivedId ? "source-contact" : "survivor-contact");
+        var additional = JsonSerializer.SerializeToElement(slices.Single(s => string.Equals(s.SectionName,
+            "AdditionalHoldedCreditorAccounts", StringComparison.Ordinal)).Data);
+        additional.GetArrayLength().Should().Be(1);
+        additional[0].GetProperty("HoldedContactId").GetString().Should().Be(archivedId ? "survivor-contact" : "source-contact");
+        additional[0].GetProperty("UserId").GetGuid().Should().Be(archivedId ? survivorId : sourceId);
+        var payouts = JsonSerializer.SerializeToElement(slices.Single(s => string.Equals(s.SectionName, Service.SepaPayouts, StringComparison.Ordinal)).Data);
+        payouts.GetArrayLength().Should().Be(2);
+        payouts.EnumerateArray().Select(b => b.GetProperty("HoldedContactId").GetString())
+            .Should().BeEquivalentTo("survivor-contact", "source-contact");
+    }
+
+    [HumansFact]
+    public async Task ContributeForUser_SourceOnlyBinding_PreservesNullPrimaryAndExportsAdditionalAccount()
+    {
+        var survivorId = Guid.NewGuid();
+        var sourceId = Guid.NewGuid();
+        _users.GetUserInfoAsync(survivorId, Arg.Any<CancellationToken>()).Returns(
+            UserInfo.Create(new User { Id = survivorId }, [], [], [], null, []) with { MergedUserIds = [sourceId] });
+        _repo.GetCreditorContactByUserAsync(sourceId, Arg.Any<CancellationToken>()).Returns(
+            new HoldedCreditorContact { UserId = sourceId, HoldedContactId = "source-only", SupplierAccountNum = 40000004 });
+
+        var service = MakeService();
+        var slices = await service.ContributeForUserAsync(survivorId, Xunit.TestContext.Current.CancellationToken);
+
+        slices.Single(s => string.Equals(s.SectionName, "HoldedCreditorAccount", StringComparison.Ordinal)).Data.Should().BeNull();
+        var additional = JsonSerializer.SerializeToElement(slices.Single(s => string.Equals(s.SectionName,
+            "AdditionalHoldedCreditorAccounts", StringComparison.Ordinal)).Data);
+        additional.GetArrayLength().Should().Be(1);
+        additional[0].GetProperty("HoldedContactId").GetString().Should().Be("source-only");
+        service.ErasureDeclaration.Should().ContainKey("AdditionalHoldedCreditorAccounts").WhoseValue.Should().BeNull();
     }
 
     [HumansFact]
@@ -3223,8 +3285,7 @@ public class HoldedFinanceServiceTests
         _sepa.TreasuryAccountId = "";
         SeedTransferRows();
 
-        var (rows, unavailable, _, _) = await MakeService().GetSepaPayoutsAsync(
-            Xunit.TestContext.Current.CancellationToken);
+        var (rows, unavailable, _, _) = await MakeService().GetSepaPayoutsAsync(ct: Xunit.TestContext.Current.CancellationToken);
 
         unavailable.Should().Contain("Sepa:TreasuryAccountId");
         rows.Should().ContainSingle().Which.NotBookableReason.Should().BeNull();
@@ -3259,8 +3320,7 @@ public class HoldedFinanceServiceTests
         _sepa.TreasuryLedgerAccount = null;
         SeedTransferRows();
 
-        var (rows, unavailable, _, _) = await MakeService().GetSepaPayoutsAsync(
-            Xunit.TestContext.Current.CancellationToken);
+        var (rows, unavailable, _, _) = await MakeService().GetSepaPayoutsAsync(ct: Xunit.TestContext.Current.CancellationToken);
 
         unavailable.Should().Contain("Sepa:TreasuryLedgerAccount");
         rows.Should().ContainSingle().Which.NotBookableReason.Should().BeNull();
@@ -3274,8 +3334,7 @@ public class HoldedFinanceServiceTests
         _repo.GetCreditorContactsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<HoldedCreditorContact>());
 
-        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(
-            Xunit.TestContext.Current.CancellationToken);
+        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(ct: Xunit.TestContext.Current.CancellationToken);
 
         rows.Should().ContainSingle().Which.NotBookableReason.Should().Contain("no Holded contact binding");
     }
@@ -3290,8 +3349,7 @@ public class HoldedFinanceServiceTests
             new() { UserId = userId, HoldedContactId = "c2", SupplierAccountNum = 40000099 },
         });
 
-        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(
-            Xunit.TestContext.Current.CancellationToken);
+        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(ct: Xunit.TestContext.Current.CancellationToken);
 
         var row = rows.Should().ContainSingle().Subject;
         row.CanBook.Should().BeFalse();
@@ -3311,8 +3369,7 @@ public class HoldedFinanceServiceTests
             new() { UserId = userId, HoldedContactId = "c2", SupplierAccountNum = 40000004 },
         });
 
-        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(
-            Xunit.TestContext.Current.CancellationToken);
+        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(ct: Xunit.TestContext.Current.CancellationToken);
 
         var row = rows.Should().ContainSingle().Subject;
         row.CanBook.Should().BeFalse();
@@ -3331,8 +3388,7 @@ public class HoldedFinanceServiceTests
             new() { UserId = userId, HoldedContactId = "c2", SupplierAccountNum = 40000004 },
         });
 
-        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(
-            Xunit.TestContext.Current.CancellationToken);
+        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(ct: Xunit.TestContext.Current.CancellationToken);
 
         // CanBook also needs a matched bank line now (nobodies-collective/Humans#1185 T3/T4 wire
         // it); this test only covers the account/contact guard, so it checks the guard directly.
@@ -3351,8 +3407,7 @@ public class HoldedFinanceServiceTests
             new() { UserId = userId, HoldedContactId = "c1", SupplierAccountNum = 40000004 },
         });
 
-        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(
-            Xunit.TestContext.Current.CancellationToken);
+        var (rows, _, _, _) = await MakeService().GetSepaPayoutsAsync(ct: Xunit.TestContext.Current.CancellationToken);
 
         // CanBook also needs a matched bank line now (nobodies-collective/Humans#1185 T3/T4 wire
         // it); this test only covers the account/contact guard, so it checks the guard directly.
@@ -3536,6 +3591,8 @@ public class HoldedFinanceServiceTests
         _repo.GetCategoryMapAsync(Arg.Any<CancellationToken>()).Returns(new List<HoldedCategoryMap>
         {
             new() { Id = Guid.NewGuid(), BudgetCategoryId = catId, HoldedAccountNumber = 62900100, HoldedAccountId = "cat-0", Tag = "x" },
+            // Mapped to a category that is not in the active year: orphaned, labels old reports only.
+            new() { Id = Guid.NewGuid(), BudgetCategoryId = Guid.NewGuid(), HoldedAccountNumber = 62900101, HoldedAccountId = "cat-1", Tag = "y" },
         });
         _repo.GetManagedAccountsAsync(Arg.Any<CancellationToken>()).Returns(new List<HoldedManagedAccount>
         {
@@ -3556,6 +3613,7 @@ public class HoldedFinanceServiceTests
         all.Select(o => (o.AccountNum, o.Label, o.IsBudgetCategory, o.IsActive)).Should().BeEquivalentTo(
         [
             (62900100, "Departments / Geeks", true, true),
+            (62900101, "Category 62900101", true, false),
             (62900150, "Workgroups / ALM 2027", false, true),
             (62900151, "Workgroups / ALM 2026", false, false),
         ]);

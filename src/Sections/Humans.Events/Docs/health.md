@@ -18,7 +18,7 @@ Every route, contract method, component and job answers exactly one of these.
 
 | Shape | The question | Answered by |
 |---|---|---|
-| **Programme** | what is on? | `/Events/Browse`, `/api/events/events`, `/api/events/events/{id}`, `/api/events/barrios`, `/api/events/barrios/{id}`, `/api/events/categories`, `EventsCard` + `EventsSearchResult` view components, all of `IEventServiceRead` |
+| **Programme** | what is on? | `/Events/Browse`, `/api/events/events`, `/api/events/events/{id}`, `/api/events/barrios`, `/api/events/barrios/{id}`, `/api/events/categories`, `EventsCard` + `EventsSearchResult` view components, all of `IEventService` |
 | **Mine** | what did I pick or propose? | `/Events/MySubmissions`, `/Events/Schedule`, `/api/events/favourites` (GET/POST/DELETE), `/api/events/preferences` (GET/PUT), `ICalendarFeedContributor`, `IUserDataContributor` |
 | **Propose** | I want to run something | `/Events/Submit` (+`/{id}/Edit`, `/Withdraw`), `/Events/Barrio/{slug}/*` (submit, edit, withdraw, bulk upload + template) |
 | **Decide** | should this be in the programme? | `/Events/Moderate` (queue, Approve, Reject, RequestEdit, Withdraw) and `/Events/Moderate/{id}/Edit` (in-place, status-preserving) |
@@ -88,8 +88,6 @@ Behavioural facts stated so a violation is recognisable, each with the line that
 - Individual events have a `Draft` status the domain honours (`IsEditableBySubmitter`) that no
   route ever produces. Either a seam for a save-without-submitting flow, or dead (Peter deferred
   the call).
-- `IEventViewInvalidator` has no caller: Settings-side saves reach the decorator through
-  `IEventSettingsChangeListener`. It is kept as a reserved seat at Peter's direction.
 
 ## 6. Deliberately not done
 

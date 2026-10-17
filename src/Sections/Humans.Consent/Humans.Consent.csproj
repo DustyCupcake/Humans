@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Humans.Base\Humans.Base.csproj" />
+    <ProjectReference Include="..\Humans.AuditLog\Humans.AuditLog.csproj" />
     <!-- IIssueQueueOwner: this section declares the issue queue it owns. -->
     <ProjectReference Include="..\Humans.Issues\Humans.Issues.csproj" />
     <ProjectReference Include="..\Humans.Teams.Contracts\Humans.Teams.Contracts.csproj" />
@@ -29,7 +30,7 @@
     <!--
       Both go through the other section's leaf, never its project, so the graph stays
       acyclic: ConsentService resolves required teams and completion through
-      IMembershipCalculatorRead, and auto-resolves an AccessSuspended notification through
+      IMembershipCalculator, and auto-resolves an AccessSuspended notification through
       INotificationAutoResolve. Humans.Governance references Humans.Consent back (for
       ConsentResource, step 3b), which is fine — Humans.Governance.Contracts names no
       Consent type.

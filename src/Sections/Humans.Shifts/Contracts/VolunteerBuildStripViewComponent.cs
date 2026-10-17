@@ -10,14 +10,14 @@ namespace Humans.Shifts.Contracts;
 /// </summary>
 /// <remarks>
 /// Public, under <c>Contracts/</c>, so the tag helper is generated and the one call site
-/// is unchanged — its constructor takes only the leaf read interface and Base services,
+/// is unchanged — its constructor takes only the public contract and Base services,
 /// so nothing forces the feature-provider path (design §15 step 6). The
 /// <c>HeatmapPartialModel</c> it builds and the partial it renders stay internal; only
 /// <c>InvokeAsync(Guid)</c> is public.
 /// </remarks>
 public sealed class VolunteerBuildStripViewComponent(
-    IVolunteerTrackingServiceRead tracking,
-    IUserServiceRead userService,
+    IVolunteerTrackingService tracking,
+    IUserService userService,
     ILogger<VolunteerBuildStripViewComponent> logger) : ViewComponent
 {
     public async Task<IViewComponentResult> InvokeAsync(Guid userId)

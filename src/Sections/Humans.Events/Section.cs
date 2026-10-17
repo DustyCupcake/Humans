@@ -37,10 +37,10 @@ public sealed class Section : ISection, IUserPart, ICampPart
 
         // CachingEventService Singleton decorator + warmup. The base
         // Service is registered keyed under "event-inner"; unkeyed
-        // IEventService resolves to the decorator. The decorator handles its
+        // IEventManagement resolves to the decorator. The decorator handles its
         // own invalidation inline after each delegated write (no
         // SaveChangesInterceptor — all event_* writes flow through
-        // IEventService by design).
+        // IEventManagement by design).
 
         // Events owns its email copy and its gallery samples; Email keeps the mechanics
         // (memory/architecture/email-templates-live-in-sender.md).
@@ -48,11 +48,11 @@ public sealed class Section : ISection, IUserPart, ICampPart
         services.AddScoped<IEmailPreviewContributor, EventsEmailPreviews>();
 
         // Inner Service — Scoped + keyed. Single keyed registration is the
-        // concrete Service instance, exposed as IEventService (keyed) for the
+        // concrete Service instance, exposed as IEventManagement (keyed) for the
         // decorator.
-        services.AddKeyedScoped<IEventService, EventService>(CachingEventService.InnerServiceKey);
+        services.AddKeyedScoped<IEventManagement, EventService>(CachingEventService.InnerServiceKey);
         services.AddScoped<EventService>(sp =>
-            (EventService)sp.GetRequiredKeyedService<IEventService>(CachingEventService.InnerServiceKey));
+            (EventService)sp.GetRequiredKeyedService<IEventManagement>(CachingEventService.InnerServiceKey));
         services.AddScoped<ICalendarFeedContributor>(sp => sp.GetRequiredService<EventService>());
 
         // CachingEventService — Singleton so the cache persists across
@@ -60,17 +60,12 @@ public sealed class Section : ISection, IUserPart, ICampPart
         // IDbContextFactory); resolves the Scoped inner via
         // IServiceScopeFactory per-call.
         services.AddSingleton<CachingEventService>();
-        services.AddSingleton<IEventService>(sp => sp.GetRequiredService<CachingEventService>());
+        services.AddSingleton<IEventManagement>(sp => sp.GetRequiredService<CachingEventService>());
 
-        // Cross-section read surface — forwards to the same caching Singleton so
+        // Public contract — forwards to the same caching Singleton so
         // reads served to other sections (e.g. the camp detail events card) hit
         // the existing approved-events cache. Interface segregation only; no new cache layer.
-        services.AddSingleton<IEventServiceRead>(sp => sp.GetRequiredService<CachingEventService>());
-
-        // IEventViewInvalidator must resolve to the SAME Singleton instance
-        // that backs IEventService (§15e CRITICAL).
-        services.AddSingleton<IEventViewInvalidator>(sp =>
-            sp.GetRequiredService<CachingEventService>());
+        services.AddSingleton<IEventService>(sp => sp.GetRequiredService<CachingEventService>());
 
         // The guide settings projection carries the Settings-owned TimeZoneId, so a
         // Settings-side event-settings save has to refresh it (peterdrier/Humans#1627).

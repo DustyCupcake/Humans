@@ -129,6 +129,37 @@ public sealed class TicketTransferServiceTests
         confirm.Should().BeNull();
     }
 
+    [HumansTheory]
+    [Xunit.InlineData(false, false)]
+    [Xunit.InlineData(false, true)]
+    [Xunit.InlineData(true, false)]
+    [Xunit.InlineData(true, true)]
+    public async Task ReceiverSelection_RefusesMergedId_WithoutCreatingTransfer(bool create, bool resolvesToSender)
+    {
+        StubAttendee(TicketAttendeeStatus.Valid, _senderId);
+        var survivorId = resolvesToSender ? _senderId : Guid.NewGuid();
+        var survivor = WrapInUserInfo(MakeUser(survivorId, "Survivor"),
+            UserFixtures.Profile(burnerName: "Survivor", firstName: "Survivor", lastName: "Smith"));
+        _userService.GetUserInfoAsync(_receiverId, Arg.Any<CancellationToken>()).Returns(survivor);
+
+        if (create)
+        {
+            var result = await _service.CreateRequestAsync(
+                new TicketTransferRequestDto(_attendeeId, _receiverId, "Reason"), _senderId,
+                Xunit.TestContext.Current.CancellationToken);
+            result.RefusalKey.Should().Be("Tickets_TicketTransfer_InvalidSelection");
+        }
+        else
+        {
+            var result = await _service.GetConfirmationAsync(_attendeeId, _receiverId, _senderId,
+                Xunit.TestContext.Current.CancellationToken);
+            result.Should().BeNull();
+        }
+
+        await _transferRepo.DidNotReceive().AddAsync(Arg.Any<TicketTransferRequest>(), Arg.Any<CancellationToken>());
+        _auditLog.ReceivedCalls().Should().BeEmpty();
+    }
+
     // ── CreateRequestAsync ──────────────────────────────────────────────────────
 
     [HumansTheory]
@@ -922,7 +953,7 @@ public sealed class TicketTransferServiceTests
         {
             User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, _adminId.ToString())], "test"))
         };
-        var controller = new TicketTransferAdminController(_service, Substitute.For<ITicketService>(), _userService)
+        var controller = new TicketTransferAdminController(_service, Substitute.For<ITicketManagement>(), _userService)
         {
             ControllerContext = new ControllerContext { HttpContext = http },
             TempData = new TempDataDictionary(http, Substitute.For<ITempDataProvider>())
@@ -951,7 +982,7 @@ public sealed class TicketTransferServiceTests
         new(
             _transferRepo,
             _ticketRepo,
-            Substitute.For<ITicketServiceRead>(),
+            Substitute.For<ITicketService>(),
             _vendor,
             _userService,
             _userEmailService,

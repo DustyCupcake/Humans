@@ -104,7 +104,7 @@ Gated to `PolicyNames.ShiftDashboardAccess` at the controller — same narrow po
 
 ## Architecture
 
-`WorkloadService` lives in `Humans.Shifts.Services` — read-only, no DbSet writes. Reads per-rota shift + signup rows through `IShiftRowView.GetRotasAsync`; uses `IShiftManagementRepository` only for the active-event lookup and an inlined distinct over `GetEventShiftsAsync` to derive the set of rota ids to walk (no new interface method — see `memory/architecture/interface-method-additions-are-debt.md`). Cross-section name stitching via `ITeamServiceRead.GetTeamsAsync` and `IUserServiceRead.GetUserInfosAsync`. Role hours come from `ITeamServiceRead.GetTeamsAsync` — the cached `TeamInfo` projection already carries each team's role definitions (with `EstimatedHours`, `RolePeriod`, `SlotCount`) and assignment holder ids, so no new cross-section method was added.
+`WorkloadService` lives in `Humans.Shifts.Services` — read-only, no DbSet writes. Reads per-rota shift + signup rows through `IShiftRowView.GetRotasAsync`; uses `IShiftManagementRepository` only for the active-event lookup and an inlined distinct over `GetEventShiftsAsync` to derive the set of rota ids to walk (no new interface method — see `memory/architecture/interface-method-additions-are-debt.md`). Cross-section name stitching via `ITeamService.GetTeamsAsync` and `IUserService.GetUserInfosAsync`. Role hours come from `ITeamService.GetTeamsAsync` — the cached `TeamInfo` projection already carries each team's role definitions (with `EstimatedHours`, `RolePeriod`, `SlotCount`) and assignment holder ids, so no new cross-section method was added.
 
 **Cache:** No service-level cache. Source data lives in the Shifts-section per-rota cache owned by `CachingShiftViewService` (§15 Option B at the section level). Signup / shift / rota mutations evict the affected rota cache entries via `IShiftViewInvalidator`, so workload totals stay consistent without a parallel cache key. The aggregation itself is microsecond-scale CPU work over a few hundred rotas at our scale.
 
@@ -112,7 +112,7 @@ Gated to `PolicyNames.ShiftDashboardAccess` at the controller — same narrow po
 
 ## Deferred — Year filter
 
-- **Year filter** — there is no multi-year surface on `IShiftManagementService` today. The view uses the active event. Easy follow-up once a year-based lookup lands.
+- **Year filter** — there is no multi-year surface on `IShiftManagement` today. The view uses the active event. Easy follow-up once a year-based lookup lands.
 
 Role hours only surface when the active event has at least one shift (the report short-circuits to empty for a shift-less event); revisit if year-round role workload needs to show before any shifts exist.
 

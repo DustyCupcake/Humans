@@ -16,7 +16,7 @@
                 <div class="card-body">
                     <div class="mb-3">
                         <label asp-for="EventName" class="form-label">Event Name</label>
-                        <input asp-for="EventName" class="form-control" placeholder="e.g., Nowhere 2026" />
+                        <input asp-for="EventName" class="form-control" placeholder="e.g., Elsewhere 2026" />
                         <span asp-validation-for="EventName" class="text-danger"></span>
                     </div>
                     <div class="mb-3">
@@ -108,6 +108,11 @@
                         <input asp-for="IsActive" type="checkbox" class="form-check-input" />
                         <label asp-for="IsActive" class="form-check-label">Active</label>
                         <div class="form-text">At most one event row is active — the one every section reads as the current cycle. Leave the form blank (no existing row loaded) to start a new cycle.</div>
+                    </div>
+                    <div class="form-check mt-3">
+                        <input asp-for="IsOffSeason" type="checkbox" class="form-check-input" />
+                        <label asp-for="IsOffSeason" class="form-check-label">Off season</label>
+                        <div class="form-text">The cycle is wrapped: the member dashboard hides ticket status and the shift callouts. Clear it when the next cycle's tickets or shifts open.</div>
                     </div>
                 </div>
             </div>

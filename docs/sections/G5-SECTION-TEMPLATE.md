@@ -1,5 +1,7 @@
 # G5 Section Move — Checklist
 
+> **Superseded vocabulary (2026-10-17).** The `I<Section>ServiceRead` split and its analyzer named below were retired: read `I<Section>ServiceRead` as the public `I<Section>Service`, and the full internal interface as `I<Section>Management`. See [`section-public-contract`](../../memory/architecture/section-public-contract.md). Lessons keyed to the old names are kept as history.
+
 The recipe for moving one section into its own project under `src/Sections/`
 (nobodies-collective/Humans#866, G5). Extracted 2026-08-09 from §15 of
 [`2026-08-07-g5-section-project-split-design.md`](../superpowers/specs/2026-08-07-g5-section-project-split-design.md)
@@ -131,9 +133,7 @@ visibility flip in one diff is unreviewable.
         lane, a file-move lane and a presentation lane before anyone starts.** The cost is
         the build/test loop over ~250 changed files, not the thinking. Do the read-boundary
         lane first regardless: a move commit that also splits a 50-member interface across
-        73 files is unreviewable (proven: Shifts, ~130 consumer files; HUM0032 caught a real
-        one on the first build). HUM0032 works either side of the move now — it resolves both
-        sections from the assembly name, falling back to the namespace.
+        73 files is unreviewable (proven: Shifts, ~130 consumer files).
       - **…and the read-boundary lane's first pass is "who is bypassing the boundary DTO the
         section already ships?", not "what should the leaf carry?"** Shifts had shipped
         `IBurnSettingsService` → `BurnSettingsInfo` a year earlier precisely so nothing
@@ -714,15 +714,14 @@ Git Bash.)
      in `Humans.<Section>` is the default — every extra assembly is build and deploy cost we pay
      dozens of times a day. Sections may reference each other directly when it is acyclic
      (Peter, nobodies-collective/Humans#1064).
-   - **The cross-section contract is `I<Section>ServiceRead`; a write contract is the
-     exception.** HUM0032 fails a cross-section injection of a write-capable `I*Service` that
-     has a read base, so the consumer either takes the read interface or the class carries
-     `[CrossSectionWrite("what it writes and why")]`. Prefer neither: when another section needs
-     a write, pull in *this* section's view component and let it write its own data.
+   - **The cross-section contract is `I<Section>Service`; a write contract is the
+     exception.** Other sections inject the DTO-only `I<Section>Service`. Where one must write,
+     prefer pulling in *this* section's view component and letting it write its own data;
+     `I<Section>Write` is the reviewed fallback. Nothing analyzes the injection site.
    - **A horizontal section's read+render layer belongs to the section, and the leaves it
      needs come with it — this bullet used to say the opposite, and cost a lane to reverse.**
      `AuditViewerService` wraps the section's own `IAuditLogService` with actor, subject and
-     team display names, so it names `IUserServiceRead`, `ITeamServiceRead` and
+     team display names, so it names `IUserService`, `ITeamService` and
      `ITeamResourceService`. That was read as "a horizontal referencing three verticals,
      forbidden at any size", and the type was parked in `Humans.Application` with its
      `AuditEvent` DTO and verb table, registered from Shell, pinned by an assembly-level
@@ -1121,7 +1120,7 @@ Git Bash.)
      Users/Profiles and are parked in `Humans.UI` under the rule above. Read "public lives
      only on the leaf" and that lane converts 129 call sites to runtime-resolved strings on
      the codebase's most-used component; read HUM0034 correctly and both go `public` under
-     `Humans.Users/Contracts/` — `IUserServiceRead` belongs on a leaf anyway and
+     `Humans.Users/Contracts/` — `IUserService` belongs on a leaf anyway and
      `IUrlHelperFactory` is framework, so neither constructor blocks it — and nothing changes
      at the call sites.
    - **Fourth case, a rider on City Planning's: invoking by name still needs the component's
@@ -1248,7 +1247,7 @@ Git Bash.)
      went down to `Humans.UI/Models` with the view model it builds. "Move the test with the
      helper" is right only when the test is about the helper (proven: Debug).
    - **Do this on paper *before* step 5b.** Moving the handler is often what takes the read
-     surface's fan-in to zero. Expenses' fan-in read as "`IExpenseReportServiceRead`'s only
+     surface's fan-in to zero. Expenses' fan-in read as "`IExpenseReportService`'s only
      outside consumer is Shell's `IbanAccessHandler`", which would have made six types public to
      serve one handler — a handler that this step moves into the section anyway (proven:
      Expenses; its `Contracts` project ended up one interface wide).
@@ -1474,7 +1473,7 @@ Git Bash.)
      `Db.Users`, `SeedUser`, `NewDbBackedUserService()` and the section pair — by call count,
      Teams' "copy the harness". But `NewDbBackedUserService` stubs over an in-memory
      `HumansDbContext`, which §858 peel 15 deletes, so copying would have taken a fresh
-     dependency on it. The service reads exactly two members of `IUserServiceRead`, so the
+     dependency on it. The service reads exactly two members of `IUserService`, so the
      harness became a `Dictionary<Guid, UserInfo>` with `SeedUser` keeping its signature and the
      seeding call sites unchanged — Campaigns' "rewrite the stub" reached from the other
      direction, and `UserInfo.Create` (Governance's `UserInfoFixtures`) is what makes the

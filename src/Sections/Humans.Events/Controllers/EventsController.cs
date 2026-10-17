@@ -22,9 +22,9 @@ namespace Humans.Events.Controllers;
 [Route("Events")]
 [ServiceFilter(typeof(EventsFeatureFilter))]
 internal sealed class EventsController(
-    IEventService guide,
-    IUserServiceRead users,
-    ICampServiceRead camps,
+    IEventManagement guide,
+    IUserService users,
+    ICampService camps,
     IAuthorizationService authorizationService,
     IClock clock,
     ILogger<EventsController> logger,

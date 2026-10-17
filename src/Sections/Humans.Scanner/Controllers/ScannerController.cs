@@ -18,12 +18,12 @@ namespace Humans.Scanner.Controllers;
 [Authorize(Policy = PolicyNames.ScannerAccess)]
 [Route("Scanner")]
 internal sealed class ScannerController(
-    ITicketServiceRead tickets,
-    IUserServiceRead users,
+    ITicketService tickets,
+    IUserService users,
     IEarlyEntryService earlyEntry,
-    IConsentServiceRead consents,
+    IConsentService consents,
     IICalFeedService calendarFeed,
-    IEventServiceRead events,
+    IEventService events,
     ISettingsService settingsService) : Controller
 {
     [HttpGet("")]

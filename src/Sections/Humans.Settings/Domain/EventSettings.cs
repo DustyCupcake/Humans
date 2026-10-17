@@ -17,7 +17,7 @@ internal sealed class EventSettings : IEventSettingsInfo
     /// <summary>Unique identifier — the id other sections store to point at this cycle.</summary>
     public Guid Id { get; init; }
 
-    /// <summary>Display name for this event (e.g., "Nowhere 2026").</summary>
+    /// <summary>Display name for this event (e.g., "Elsewhere 2026").</summary>
     public string EventName { get; set; } = string.Empty;
 
     /// <summary>
@@ -47,6 +47,15 @@ internal sealed class EventSettings : IEventSettingsInfo
     /// <see cref="BuildStartOffset"/> ≤ value &lt; 0.
     /// </summary>
     public int? EarlyEntryStartOffset { get; set; }
+
+    /// <summary>
+    /// Admin-set "this cycle is wrapped" switch. While true, the member dashboard drops its
+    /// in-season cards (ticket status, shift callouts). Deriving it from the strike date is
+    /// deferred to the settings revamp; until then an operator flips it by hand. Nullable
+    /// because a new column on an existing table must be (required-columns-need-approval);
+    /// null reads as false.
+    /// </summary>
+    public bool? IsOffSeason { get; set; }
 
     // ------------------------------------------------------------------
     // Build-phase sub-period boundaries — the build period is split into

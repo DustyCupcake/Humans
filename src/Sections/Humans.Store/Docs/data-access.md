@@ -21,8 +21,8 @@ The section's `Service` class (`Services/Service.cs`); its only published contra
 | StoreInvoices | R/W |
 | StoreTreasurySyncStates | — (table ships; no code reads or writes it) |
 
-Cross-section calls via `IAuditLogService`, `ICampServiceRead`,
-`ITeamServiceRead` (team-order counterparty surface),
+Cross-section calls via `IAuditLogService`, `ICampService`,
+`ITeamService` (team-order counterparty surface),
 `ISettingsService`, `IStripeService` (the `Humans.Stripe` connector
 section — creates Checkout sessions, lists sessions for reconciliation, handles
 webhook events including SEPA async-payment transitions), `IHoldedClient` (the
@@ -48,7 +48,7 @@ reconciliation reads live Stripe sessions via `IStripeService`.
 Legacy `StoreOrders.Year = 0` rows are reviewed and repaired through
 `/Store/Admin/OrderYears`. `IStoreRepository.GetOrdersWithMissingYearAsync` reads the
 Store-owned candidates; the service resolves each cross-section season through
-`ICampServiceRead`, updates only resolvable rows, and audits every confirmed repair.
+`ICampService`, updates only resolvable rows, and audits every confirmed repair.
 
 `IssueInvoiceAsync` delegates to internal `StoreInvoiceIssuer` (an `IApplicationService`, using the same Store repository). `StoreOrderReader` shares live pricing and counterparty name reads with the main service. Issuance is the section's only outbound Holded write: it reprices the order's line
 snapshots from the live catalog, builds one Holded line per order line (plus a tax-0 line

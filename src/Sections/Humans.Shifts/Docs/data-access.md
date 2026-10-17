@@ -48,9 +48,9 @@ Repository: `IShiftManagementRepository`.
 
 Cross-section calls via `IAuditLogService`, `IAdminAuthorizationService`,
 `IShiftViewInvalidator`, plus `IServiceProvider` for cycle-breaking, which
-lazy-resolves the read surfaces `ITeamServiceRead`, `IUserServiceRead`,
-`ICampServiceRead`, `IRoleAssignmentServiceRead`, and
-`ITicketServiceRead`. Injects `IMemoryCache` directly for the
+lazy-resolves the read surfaces `ITeamService`, `IUserService`,
+`ICampService`, `IRoleAssignmentService`, and
+`ITicketService`. Injects `IMemoryCache` directly for the
 `shift-auth:{userId}` slot. Implements `IShiftAuthorizationInvalidator`,
 `IUserMerge`. Also exposes the Cantina-gating predicates
 (`HasQualifyingCantinaSignupAsync`, `GetOnSiteUserIdsForDayAsync`).
@@ -59,8 +59,8 @@ lazy-resolves the read surfaces `ITeamServiceRead`, `IUserServiceRead`,
 read-only by-camp shift summary: confirmed signup totals come from
 `IShiftManagementRepository.GetConfirmedUserShiftTotalsAsync` (reads
 `ShiftSignups` joined to `Shifts`/`Rotas`, scoped by `EventSettings` id),
-camp labels and the active-camp roster from `ICampServiceRead`, and display
-names from `IUserServiceRead` — stitched in memory at the service layer with
+camp labels and the active-camp roster from `ICampService`, and display
+names from `IUserService` — stitched in memory at the service layer with
 **no new cross-section interface** and no foreign-repository read. Returns
 `null` for an unknown team-slug / out-of-scope rota (controller maps to 404).
 
@@ -78,11 +78,11 @@ Repositories: `IShiftManagementRepository`, `IVolunteerTrackingRepository`.
 | GeneralAvailability | R/W (via `IVolunteerTrackingRepository`; R for GDPR export, W for GDPR erasure) |
 | VolunteerBuildStatuses | W (via `IVolunteerTrackingRepository`, GDPR erasure) |
 
-Cross-section calls via `IShiftManagementService`, `ISettingsService` (via
+Cross-section calls via `IShiftManagement`, `ISettingsService` (via
 `EventCalendarResolver`, nobodies-collective/Humans#1630),
 `IAuditLogService`, `INotificationEmitter`, `IAdminAuthorizationService`,
 `IShiftViewInvalidator`, `IEarlyEntryInvalidator`, plus `IServiceProvider`
-(lazy-resolves `ITeamServiceRead` for coordinator/team-name lookups).
+(lazy-resolves `ITeamService` for coordinator/team-name lookups).
 Implements `IUserDataContributor`, `IUserMerge`, `ICalendarFeedContributor`
 (personal iCal feed contributor — the user's Confirmed and Pending shift
 signups; Cancelled/Bailed/NoShow history excluded). `EraseForUserAsync`
@@ -104,12 +104,12 @@ Repositories: `IVolunteerTrackingRepository`, `IShiftManagementRepository`.
 | Shifts | R | IShiftManagementRepository |
 | Rotas | R | IShiftManagementRepository |
 
-Cross-section calls via `IUserServiceRead`, `IShiftViewInvalidator`. No
+Cross-section calls via `IUserService`, `IShiftViewInvalidator`, `IAuditLogService` (self-service availability saves). No
 cache. Holds the gap-detection algorithm + heatmap data assembly,
 plus the full day-availability / camp-setup / day-off mutation surface.
 Build-eligibility signups (`ShiftSignups` + `EventSettings`) read through
 `IShiftManagementRepository.GetEligibleBuildSignupsAsync`. Implements
-`IVolunteerTrackingService`, `IUserMerge`.
+`IVolunteerTrackingManagement`, `IUserMerge`.
 
 ### VolunteerTrackingExportService (Scoped)
 
@@ -122,7 +122,7 @@ Repository: `IShiftManagementRepository`.
 | Shifts | R (via repo) |
 | Rotas | R (via repo) |
 
-Cross-section calls via `IShiftManagementService`, `IUserServiceRead`.
+Cross-section calls via `IShiftManagement`, `IUserService`.
 Implements `IVolunteerTrackingExportService`, `IEarlyEntryProvider`
 (contributes confirmed-build-shift early-entry rows). No cache, no
 direct DB access beyond the export query.
@@ -184,7 +184,7 @@ Repository: `IShiftManagementRepository`.
 | Shifts | R |
 | EventSettings | R (team-level dispatch path — active event resolved via `EventCalendarResolver`, not this repo) |
 
-Cross-section calls via `ITeamServiceRead`, `IUserServiceRead`,
+Cross-section calls via `ITeamService`, `IUserService`,
 `IEmailService`, `IAuditLogService`; builds its own messages through the
 section's `ShiftsEmails`. Implements
 per-rota (`SendRotaMessageAsync`) and team-level
@@ -210,7 +210,7 @@ Repository: `IShiftManagementRepository`.
 | Rotas | R (cached via `IShiftView`) |
 
 Cross-section calls via `IShiftView` (cached), `ITeamService` (team
-projections for role-period estimates), `IUserServiceRead`. No own
+projections for role-period estimates), `IUserService`. No own
 cache — relies on the per-rota `ShiftView.RotaView` eviction to refresh.
 
 ### EarlyEntryCapacityCalculator / ShiftEarlyEntryProjection / TeamPalette

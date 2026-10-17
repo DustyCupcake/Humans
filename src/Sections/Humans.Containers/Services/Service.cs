@@ -12,7 +12,7 @@ namespace Humans.Containers.Services;
 internal sealed class Service(
     IContainerRepository repo,
     IFileStorage fileStorage,
-    ICampServiceRead campService,
+    ICampService campService,
     IAuditLogService auditLog,
     IClock clock,
     ILogger<Service> logger) : IContainerService
@@ -58,6 +58,9 @@ internal sealed class Service(
             if (ValidateImage(upload) is { } imageError) return imageError.ToResult<ContainerDto>();
         }
         if (ValidateImageCount(uploads.Count) is { } countError) return countError.ToResult<ContainerDto>();
+
+        if (await campService.GetCampByIdAsync(data.CampId, ct) is null)
+            return new(null, "Containers_Error_CampNotFound");
 
         var now = clock.GetCurrentInstant();
         var id = Guid.NewGuid();

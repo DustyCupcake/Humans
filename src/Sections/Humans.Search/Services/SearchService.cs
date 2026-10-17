@@ -13,11 +13,11 @@ namespace Humans.Search.Services;
 /// Display ordering lives in <c>SearchController</c>.
 /// </summary>
 internal sealed class SearchService(
-    IUserServiceRead userService,
-    ITeamServiceRead teamService,
-    ICampServiceRead campService,
-    IShiftManagementServiceRead shiftService,
-    IEventServiceRead eventService,
+    IUserService userService,
+    ITeamService teamService,
+    ICampService campService,
+    IShiftManagementService shiftService,
+    IEventService eventService,
     IConfiguration configuration) : ISearchService
 {
     private readonly bool _eventsFeatureEnabled = configuration.GetValue<bool>("Features:Events");

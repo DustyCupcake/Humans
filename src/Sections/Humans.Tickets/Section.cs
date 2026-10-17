@@ -43,14 +43,14 @@ public sealed class Section : ISection, IIssueQueueOwner
         services.AddScoped<ITicketSync>(sp => sp.GetRequiredService<TicketSyncService>());
         services.AddScoped<IUserMerge>(sp => sp.GetRequiredService<TicketSyncService>());
 
-        services.AddKeyedScoped<ITicketService, TicketQueryService>(
+        services.AddKeyedScoped<ITicketManagement, TicketQueryService>(
             CachingTicketQueryService.InnerServiceKey);
         services.AddScoped<TicketQueryService>();
         services.AddScoped<IUserDataContributor>(sp => sp.GetRequiredService<TicketQueryService>());
 
         services.AddSingleton<CachingTicketQueryService>();
+        services.AddSingleton<ITicketManagement>(sp => sp.GetRequiredService<CachingTicketQueryService>());
         services.AddSingleton<ITicketService>(sp => sp.GetRequiredService<CachingTicketQueryService>());
-        services.AddSingleton<ITicketServiceRead>(sp => sp.GetRequiredService<CachingTicketQueryService>());
         services.AddSingleton<ITicketCacheInvalidator>(sp => sp.GetRequiredService<CachingTicketQueryService>());
         services.AddHostedService(sp => sp.GetRequiredService<CachingTicketQueryService>());
         services.AddSingleton<ICacheStats>(sp => sp.GetRequiredService<CachingTicketQueryService>().OrdersCacheStats);
@@ -104,6 +104,10 @@ public sealed class Section : ISection, IIssueQueueOwner
     // This section owns the issue queue its members' reports land in; Issues discovers
     // the seam rather than holding a list of sections (memory/architecture/section-contribution-seams.md).
     string IIssueQueueOwner.QueueKey => "Tickets";
+
+    string IIssueQueueOwner.AreaLabelResourceKey => "Issues_Area_Tickets";
+
+    IReadOnlyList<string> IIssueQueueOwner.PathSegments => ["tickets"];
 
     IReadOnlyList<string> IIssueQueueOwner.OwningRoles => [RoleNames.TicketAdmin];
 }

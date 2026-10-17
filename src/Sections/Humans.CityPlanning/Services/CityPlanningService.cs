@@ -16,19 +16,19 @@ namespace Humans.CityPlanning.Services;
 
 /// <summary>
 /// The City Planning section service. Implements the cross-section surface
-/// (<see cref="ICityPlanningService"/> on the contracts leaf) and, beyond it, the polygon,
+/// (<see cref="ICityPlanningService"/> and <see cref="ICityPlanningWrite"/> on the contracts leaf) and, beyond it, the polygon,
 /// placement-phase, zone and export operations the section's own controllers call directly.
-/// Cross-section reads via ICampServiceRead/ITeamServiceRead/IUserServiceRead; settings
+/// Cross-section reads via ICampService/ITeamService/IUserService; settings
 /// writes record their actor through the Audit crosscut.
 /// </summary>
 internal sealed class CityPlanningService(
     ICityPlanningRepository repo,
     IClock clock,
     IOptions<CityPlanningOptions> options,
-    ICampServiceRead campService,
-    ITeamServiceRead teamService,
-    IUserServiceRead userService,
-    IAuditLogService auditLog) : ICityPlanningService
+    ICampService campService,
+    ITeamService teamService,
+    IUserService userService,
+    IAuditLogService auditLog) : ICityPlanningService, ICityPlanningWrite
 {
     private const long MaxGeoJsonUploadBytes = 10 * 1024 * 1024;
 
@@ -114,7 +114,7 @@ internal sealed class CityPlanningService(
 
     /// <summary>
     /// Builds the season-id → display-data map via LINQ over the cached
-    /// <see cref="ICampServiceRead.GetCampsForYearAsync"/> projection.
+    /// <see cref="ICampService.GetCampsForYearAsync"/> projection.
     /// </summary>
     private async Task<Dictionary<Guid, (string Name, string CampSlug, SoundZone? SoundZone, SpaceSize? SpaceRequirement, Guid CampId)>> BuildSeasonDisplayDataAsync(
         int year, CancellationToken cancellationToken)

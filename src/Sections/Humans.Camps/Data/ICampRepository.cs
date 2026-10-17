@@ -15,7 +15,7 @@ namespace Humans.Camps.Data;
 /// context so callers never have to reason about the EF context lifetime.
 /// Cross-domain user navigation is not resolved by this repository; the
 /// application service stitches display names from
-/// <see cref="Humans.Users.Contracts.IUserServiceRead"/> per design-rules §6.
+/// <see cref="Humans.Users.Contracts.IUserService"/> per design-rules §6.
 /// </remarks>
 internal partial interface ICampRepository : IRepository
 {
@@ -147,9 +147,9 @@ internal partial interface ICampRepository : IRepository
     Task AddSeasonAsync(CampSeason season, CancellationToken ct = default);
 
     /// <summary>
-    /// Sets the <c>NameLockDate</c> for every season in the given year.
+    /// Sets the <c>NameLockDate</c> for every season in the given year, returning the changed count.
     /// </summary>
-    Task SetNameLockDateForYearAsync(int year, LocalDate lockDate, CancellationToken ct = default);
+    Task<int> SetNameLockDateForYearAsync(int year, LocalDate lockDate, CancellationToken ct = default);
 
     /// <summary>
     /// Returns the maximum <c>NameLockDate</c> per year, for the given years.

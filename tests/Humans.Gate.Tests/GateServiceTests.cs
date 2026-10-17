@@ -78,14 +78,14 @@ public class GateServiceTests
     private static readonly Guid GuestId = Guid.NewGuid();
     private static readonly Guid AgentId = Guid.NewGuid();
 
-    private readonly ITicketServiceRead _tickets = Substitute.For<ITicketServiceRead>();
+    private readonly ITicketService _tickets = Substitute.For<ITicketService>();
     private readonly IEarlyEntryService _earlyEntry = Substitute.For<IEarlyEntryService>();
     private readonly ISettingsService _burn = Substitute.For<ISettingsService>();
-    private readonly IShiftManagementServiceRead _shifts = Substitute.For<IShiftManagementServiceRead>();
+    private readonly IShiftManagementService _shifts = Substitute.For<IShiftManagementService>();
     private readonly IRoleAssignmentService _roles = Substitute.For<IRoleAssignmentService>();
     private readonly IPasswordHasher<GateStaffPin> _pinHasher = new PasswordHasher<GateStaffPin>();
     private readonly IAuditLogService _auditLog = Substitute.For<IAuditLogService>();
-    private readonly IUserService _users = Substitute.For<IUserService>();
+    private readonly IUserWrite _users = Substitute.For<IUserWrite>();
     private readonly GateService _svc;
 
     public GateServiceTests()

@@ -22,16 +22,16 @@ namespace Humans.Shifts.Controllers;
 [Route("Shifts/Dashboard/VolunteerTracking")]
 [Authorize(Policy = PolicyNames.ShiftDashboardAccess)]
 internal sealed class VolunteerTrackingController(
-    IVolunteerTrackingService service,
-    IShiftManagementService shiftManagementService,
+    IVolunteerTrackingManagement service,
+    IShiftManagement shiftManagementService,
     IBurnSettingsService burnSettings,
     IVolunteerTrackingExportService exportService,
     VolunteerTrackingXlsxBuilder xlsxBuilder,
-    IUserServiceRead userService,
+    IUserService userService,
     IAuditLogService auditLogService,
     IStringLocalizer<ShiftsResource> localizer) : HumansControllerBase(userService)
 {
-    private readonly IUserServiceRead _userService = userService;
+    private readonly IUserService _userService = userService;
 
     [HttpGet("")]
     public async Task<IActionResult> Index(
@@ -155,7 +155,8 @@ internal sealed class VolunteerTrackingController(
         }
 
         var actorInfo = await GetCurrentUserInfoAsync(ct);
-        var actor = actorInfo?.BurnerName ?? localizer["VolTrack_UnknownUser"].Value;
+        if (actorInfo is null) return Unauthorized();
+        var actor = actorInfo.BurnerName;
 
         var request = new VolunteerExportRequest(
             EventSettingsId: eventSettings.Id,
@@ -163,6 +164,7 @@ internal sealed class VolunteerTrackingController(
             StartDate: rangeStart,
             EndDate: rangeEnd,
             Period: period,
+            ActorUserId: actorInfo.Id,
             ActorPlayaName: actor,
             GeneratedAtUtc: SystemClock.Instance.GetCurrentInstant());
 

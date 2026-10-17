@@ -37,9 +37,9 @@ public class ShiftsControllerToggleDayTests
 {
     private static readonly Instant TestNow = Instant.FromUtc(2026, 6, 15, 12, 0);
 
-    private readonly IShiftManagementService _shiftMgmt = Substitute.For<IShiftManagementService>();
+    private readonly IShiftManagement _shiftMgmt = Substitute.For<IShiftManagement>();
     private readonly IShiftSignupService _signupService = Substitute.For<IShiftSignupService>();
-    private readonly IVolunteerTrackingService _volunteerTrackingService = Substitute.For<IVolunteerTrackingService>();
+    private readonly IVolunteerTrackingManagement _volunteerTrackingService = Substitute.For<IVolunteerTrackingManagement>();
     private readonly IShiftRowView _shiftView = Substitute.For<IShiftRowView>();
     private readonly ITeamService _teamService = Substitute.For<ITeamService>();
     private readonly IAuditLogService _auditLogService = Substitute.For<IAuditLogService>();
@@ -74,6 +74,8 @@ public class ShiftsControllerToggleDayTests
 
     public ShiftsControllerToggleDayTests()
     {
+        _volunteerTrackingService.SetAvailabilityAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<IReadOnlyList<int>>())
+            .Returns(true);
         _localizer[Arg.Any<string>()].Returns(ci =>
             new LocalizedString(ci.Arg<string>(), ci.Arg<string>()));
         _onboardingLocalizer[Arg.Any<string>()].Returns(ci =>
@@ -149,6 +151,22 @@ public class ShiftsControllerToggleDayTests
         result.Should().BeOfType<BadRequestObjectResult>().Which.Value.Should().Be("No hay ningún evento activo.");
         await _volunteerTrackingService.DidNotReceive().SetAvailabilityAsync(
             Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<IReadOnlyList<int>>());
+    }
+
+    [HumansFact]
+    public async Task SaveAvailability_RefusedSelection_ReturnsLocalizedError()
+    {
+        var userId = Guid.NewGuid();
+        var sut = BuildSut(userId, MakeUserInfo(userId, "Alice", "Alice", "Example", "vegan"));
+        _burnSettings.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(Event);
+        _volunteerTrackingService.SetAvailabilityAsync(userId, Event.Id, Arg.Any<IReadOnlyList<int>>()).Returns(false);
+        _localizer["Shifts_AvailabilityInvalidDays"].Returns(
+            new LocalizedString("Shifts_AvailabilityInvalidDays", "Selecciona días del calendario del evento."));
+
+        var result = await sut.SaveAvailability([int.MaxValue]);
+
+        result.Should().BeOfType<BadRequestObjectResult>().Which.Value.Should().Be("Selecciona días del calendario del evento.");
+        sut.TempData.Should().BeEmpty();
     }
 
     [HumansTheory]

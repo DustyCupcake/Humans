@@ -18,7 +18,7 @@ internal sealed class CachingCalendarService(
     IServiceScopeFactory scopeFactory,
     ILogger<CachingCalendarService> logger)
     : TrackedCache<Guid, CalendarEventInfo>("Calendar.Event", warmOnStartup: true, logger),
-        ICalendarServiceRead, ICalendarService
+        ICalendarQueries, ICalendarService
 {
     /// <summary>DI key for the undecorated inner <see cref="ICalendarService"/>.</summary>
     public const string InnerServiceKey = "calendar-inner";
@@ -201,7 +201,7 @@ internal sealed class CachingCalendarService(
 
         var teamIds = events.Select(e => e.OwningTeamId).Distinct().ToList();
         await using var scope = scopeFactory.CreateAsyncScope();
-        var teamService = scope.ServiceProvider.GetRequiredService<ITeamServiceRead>();
+        var teamService = scope.ServiceProvider.GetRequiredService<ITeamService>();
         var teamsById = await teamService.GetTeamsAsync(ct);
         return teamIds
             .Where(teamsById.ContainsKey)

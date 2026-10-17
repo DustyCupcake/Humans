@@ -13,11 +13,11 @@ namespace Humans.Containers.Controllers;
 [Authorize]
 [Route("Camp/{slug}/Containers")]
 internal sealed class ContainerController(
-    ICampServiceRead campService,
+    ICampService campService,
     IContainerService containerService,
-    ICityPlanningServiceRead cityPlanningService,
+    ICityPlanningService cityPlanningService,
     IAuthorizationService authorizationService,
-    IUserServiceRead userService,
+    IUserService userService,
     IStringLocalizer<ContainersResource> localizer,
     ILogger<ContainerController> logger) : HumansControllerBase(userService)
 {

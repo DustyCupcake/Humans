@@ -13,6 +13,7 @@ internal static class ExpenseReportMapper
         HoldedAccountId = r.HoldedAccountId,
         BudgetCategoryId = r.BudgetCategoryId,
         BudgetYearId = r.BudgetYearId,
+        PreapprovalGrantId = r.PreapprovalGrantId,
         Status = r.Status,
         Note = r.Note,
         PayeeName = r.PayeeName,
@@ -42,6 +43,10 @@ internal static class ExpenseReportMapper
             AttachmentId = l.AttachmentId,
             ParentLineId = l.ParentLineId,
             HoldedDocId = l.HoldedDocId,
+            Declined = l.Declined,
+            DeclinedReason = l.DeclinedReason,
+            DeclinedByUserId = l.DeclinedByUserId,
+            DeclinedAt = l.DeclinedAt,
             Attachment = l.Attachment is null
                 ? null
                 : new ExpenseAttachmentDto

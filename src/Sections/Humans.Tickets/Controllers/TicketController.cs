@@ -17,11 +17,11 @@ namespace Humans.Tickets.Controllers;
 [Authorize(Policy = PolicyNames.TicketAdminBoardOrAdmin)]
 [Route("Tickets")]
 internal sealed class TicketController(
-    ITicketService ticketQueryService,
+    ITicketManagement ticketQueryService,
     ITicketSyncService ticketSyncService,
     IUserParticipationBackfillService participationBackfillService,
     TicketDashboardPageBuilder dashboardPageBuilder,
-    IUserServiceRead userService,
+    IUserService userService,
     ILogger<TicketController> logger) : HumansControllerBase(userService)
 {
     [HttpGet("")]

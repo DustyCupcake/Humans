@@ -16,12 +16,12 @@ namespace Humans.Shifts.Controllers;
 [Authorize]
 [Route("Teams/{slug}/Shifts")]
 internal sealed class ShiftAdminController(
-    ITeamServiceRead teamService,
-    IShiftManagementService shiftMgmt,
+    ITeamService teamService,
+    IShiftManagement shiftMgmt,
     IBurnSettingsService burnSettings,
     IShiftSignupService signupService,
     IShiftRowView shiftView,
-    IUserServiceRead userService,
+    IUserService userService,
     IAuthorizationService authorizationService,
     IClock clock,
     ShiftAdminPageBuilder pageBuilder,
@@ -30,7 +30,7 @@ internal sealed class ShiftAdminController(
     ILogger<ShiftAdminController> logger,
     IStringLocalizer<ShiftsResource> localizer) : HumansTeamControllerBase(userService, teamService, authorizationService)
 {
-    private readonly ITeamServiceRead _teamService = teamService;
+    private readonly ITeamService _teamService = teamService;
 
     [HttpGet("")]
     public async Task<IActionResult> Index(string slug, bool incompleteOnboarding = false)
@@ -147,6 +147,7 @@ internal sealed class ShiftAdminController(
     {
         var (teamError, _, team) = await ResolveDepartmentManagementAsync(slug);
         if (teamError is not null) return teamError;
+        if (!ModelState.IsValid) return BadRequest(ModelState);
 
         try
         {
@@ -176,6 +177,7 @@ internal sealed class ShiftAdminController(
     {
         var (teamError, _, team) = await ResolveDepartmentManagementAsync(slug);
         if (teamError is not null) return teamError;
+        if (!ModelState.IsValid) return BadRequest(ModelState);
 
         var timeSlots = new List<ShiftTimeSlotInput>();
         foreach (var slot in model.TimeSlots)

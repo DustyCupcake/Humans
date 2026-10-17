@@ -73,6 +73,16 @@ namespace Humans.Expenses.Data.Migrations
                     b.Property<Guid?>("AttachmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<Instant?>("DeclinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeclinedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DeclinedReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -183,6 +193,9 @@ namespace Humans.Expenses.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("PreapprovalGrantId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -207,6 +220,8 @@ namespace Humans.Expenses.Data.Migrations
                     b.HasIndex("HoldedContactId");
 
                     b.HasIndex("HoldedDocId");
+
+                    b.HasIndex("PreapprovalGrantId");
 
                     b.HasIndex("Status");
 

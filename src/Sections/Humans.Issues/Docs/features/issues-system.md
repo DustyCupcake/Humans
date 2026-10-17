@@ -93,7 +93,7 @@ Issues is the only in-app reporting path. Feedback (`src/Sections/Humans.Feedbac
 **As** the org **and** as the system, **I want** issues to land in the right queue automatically based on which section they're about, **so that** triage scales as we add coordinators per section.
 
 **Acceptance Criteria:**
-- `Issue.Section` is one of the queue keys sections declared through `IIssueQueueOwner` — `IssueSectionRouting.AllKnownSections` (Tickets, Camps, Teams, Shifts, Onboarding, Profiles, Budget, Governance, Legal, CityPlanning, Scanner) — or null
+- `Issue.Section` is one of the queue keys sections declared through `IIssueQueueOwner` — `IssueSectionRouting.AllKnownSections` — or null
 - `IssueSectionRouting.RolesFor(section)` is the routing table mapping section → role(s) whose holders see that section; Admin is always implicit
 - Null `Section` falls to the Admin queue only
 - Routing is data-driven: a change to `IssueSectionRouting.RolesFor` takes effect immediately (sections are stored as strings; no migration needed)
@@ -102,7 +102,7 @@ Issues is the only in-app reporting path. Feedback (`src/Sections/Humans.Feedbac
 
 ## Data Model
 
-See [`src/Sections/Humans.Issues/Docs/Issues.md`](../Issues.md) for full field-level detail on `Issue`, `IssueComment`, and the `IssueStatus` / `IssueCategory` enums. Owned tables: `issues`, `issue_comments`. `ReporterUserId`, `AssigneeUserId`, `ResolvedByUserId`, `SenderUserId` are bare columns with no FK and no nav property at all (nobodies-collective/Humans#1188), and display data is stitched in `IssuesService` via `IUserServiceRead.GetUserInfosAsync`.
+See [`src/Sections/Humans.Issues/Docs/Issues.md`](../Issues.md) for full field-level detail on `Issue`, `IssueComment`, and the `IssueStatus` / `IssueCategory` enums. Owned tables: `issues`, `issue_comments`. `ReporterUserId`, `AssigneeUserId`, `ResolvedByUserId`, `SenderUserId` are bare columns with no FK and no nav property at all (nobodies-collective/Humans#1188), and display data is stitched in `IssuesService` via `IUserService.GetUserInfosAsync`.
 
 **Screenshot storage:** `IFileStorage` key `uploads/issues/{issueId}/{guid}.{ext}` (the store is rooted at wwwroot, so legacy rows keep resolving unchanged). The static `/uploads/issues/` path is blocked in the Shell; `GET /Issues/{id}/Screenshot` (cookie) and `GET /api/backdoor/issues/{id}/screenshot` (API key; the Backdoor payload's `ScreenshotUrl`) stream the file after the same reach check as Detail.
 

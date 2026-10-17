@@ -12,16 +12,16 @@ namespace Humans.Governance.Services;
 
 internal sealed class MembershipCalculator(
     IMembershipQuery membershipQuery,
-    IUserServiceRead userService,
-    ILegalDocumentSyncServiceRead legalDocumentSyncService,
+    IUserService userService,
+    ILegalDocumentSyncService legalDocumentSyncService,
     IServiceProvider serviceProvider,
-    IClock clock) : IMembershipCalculatorRead, IOrchestrator
+    IClock clock) : IMembershipCalculator, IOrchestrator
 {
-    // IMembershipQuery (not ITeamService/IRoleAssignmentServiceRead) breaks DI cycle through ISystemTeamSync.
+    // IMembershipQuery (not ITeamService/IRoleAssignmentService) breaks DI cycle through ISystemTeamSync.
 
-    // Lazy IConsentServiceRead resolve — ConsentService depends on IMembershipCalculatorRead.
+    // Lazy IConsentService resolve — ConsentService depends on IMembershipCalculator.
 
-    private IConsentServiceRead ConsentService => serviceProvider.GetRequiredService<IConsentServiceRead>();
+    private IConsentService ConsentService => serviceProvider.GetRequiredService<IConsentService>();
 
     // Request-scoped memo — relies on the service being registered Scoped; several dashboard
     // chrome components ask for the same user's snapshot in one render.
