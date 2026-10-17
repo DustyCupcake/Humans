@@ -22,7 +22,7 @@ namespace Humans.Containers.Tests.Services;
 public sealed class ServiceImageTests
 {
     private readonly IFileStorage _fileStorage;
-    private readonly ICampServiceRead _camps = Substitute.For<ICampServiceRead>();
+    private readonly ICampService _camps = Substitute.For<ICampService>();
     private readonly Microsoft.Extensions.Logging.ILogger<Service> _logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<Service>>();
     private readonly IAuditLogService _auditLog = Substitute.For<IAuditLogService>();
     internal static readonly IStringLocalizer<ContainersResource> Localizer =
@@ -388,7 +388,7 @@ public sealed class ServiceImageTests
             });
         var original = new IOException("Database delete failed");
         repo.DeleteAsync(container.Id, Arg.Any<CancellationToken>()).Returns(Task.FromException(original));
-        var service = new Service(repo, _fileStorage, Substitute.For<ICampServiceRead>(), _auditLog, new FakeClock(StartTime), _logger);
+        var service = new Service(repo, _fileStorage, Substitute.For<ICampService>(), _auditLog, new FakeClock(StartTime), _logger);
 
         var act = () => service.DeleteAsync(container.Id, Guid.NewGuid(), ct);
 

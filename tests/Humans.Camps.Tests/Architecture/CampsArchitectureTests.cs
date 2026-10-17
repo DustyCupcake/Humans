@@ -1,5 +1,6 @@
 using Humans.GoogleIntegration.Contracts;
 using AwesomeAssertions;
+using Microsoft.Extensions.Configuration;
 using Humans.Base.Caching;
 using Humans.Base.Enums;
 using Humans.Settings.Contracts;
@@ -22,9 +23,9 @@ public class CampsArchitectureTests
     // ── CachingCampService decorator ──────────────────────────────────
 
     [HumansFact]
-    public void CachingCampService_ImplementsICampService()
+    public void CachingCampService_ImplementsICampManagement()
     {
-        typeof(ICampService).IsAssignableFrom(typeof(CachingCampService))
+        typeof(ICampManagement).IsAssignableFrom(typeof(CachingCampService))
             .Should().BeTrue(
                 because: "the decorator transparently substitutes the inner service per §15a");
     }
@@ -86,27 +87,9 @@ public class CampsArchitectureTests
         var paramTypes = ctor.GetParameters().Select(p => p.ParameterType).ToList();
 
         paramTypes.Should().Contain(typeof(ICampRoleCampAccess),
-            because: "role workflows need only membership/status/settings helpers, not the whole ICampService surface");
-        paramTypes.Should().NotContain(typeof(ICampService),
+            because: "role workflows need only membership/status/settings helpers, not the whole ICampManagement surface");
+        paramTypes.Should().NotContain(typeof(ICampManagement),
             because: "the role sub-service must not depend on the full Camps service surface");
-    }
-
-    // ── ICampServiceRead split (memory/architecture/section-read-write-split.md) ──
-
-    [HumansFact]
-    public void ICampService_InheritsICampServiceRead()
-    {
-        typeof(ICampServiceRead).IsAssignableFrom(typeof(ICampService))
-            .Should().BeTrue(
-                because: "ICampService is the full Camps surface; external sections inject the narrow ICampServiceRead. " +
-                         "See memory/architecture/section-read-write-split.md.");
-    }
-
-    [HumansFact]
-    public void CachingCampService_ImplementsICampServiceRead()
-    {
-        typeof(ICampServiceRead).IsAssignableFrom(typeof(CachingCampService))
-            .Should().BeTrue();
     }
 
     [HumansFact]
@@ -115,35 +98,6 @@ public class CampsArchitectureTests
         typeof(ICampRoleCampAccess).IsAssignableFrom(typeof(CachingCampService))
             .Should().BeTrue(
                 because: "CampRoleService must use the decorator-backed port so migration writes still invalidate CampInfo");
-    }
-
-    [HumansFact]
-    public void ICampService_And_ICampServiceRead_ResolveToSameSingleton()
-    {
-        // Mirrors the Camps-section DI shape: the same CachingCampService
-        // singleton is exposed under both interface keys.
-        var services = new ServiceCollection();
-        services.AddSingleton(Substitute.For<ICampRepository>());
-        services.AddSingleton(Substitute.For<IServiceScopeFactory>());
-        services.AddSingleton(Substitute.For<ISettingsService>());
-        services.AddSingleton(Substitute.For<IClock>());
-        services.AddSingleton(Substitute.For<ILogger<CachingCampService>>());
-
-        services.AddSingleton<CachingCampService>();
-        services.AddSingleton<ICampService>(sp => sp.GetRequiredService<CachingCampService>());
-        services.AddSingleton<ICampServiceRead>(sp => sp.GetRequiredService<CachingCampService>());
-        services.AddSingleton<ICampRoleCampAccess>(sp => sp.GetRequiredService<CachingCampService>());
-
-        using var provider = services.BuildServiceProvider();
-
-        var fromFull = provider.GetRequiredService<ICampService>();
-        var fromRead = provider.GetRequiredService<ICampServiceRead>();
-        var fromRoleAccess = provider.GetRequiredService<ICampRoleCampAccess>();
-        var concrete = provider.GetRequiredService<CachingCampService>();
-
-        ReferenceEquals(fromFull, concrete).Should().BeTrue();
-        ReferenceEquals(fromRead, concrete).Should().BeTrue();
-        ReferenceEquals(fromRoleAccess, concrete).Should().BeTrue();
     }
 
     [HumansFact]
@@ -165,5 +119,30 @@ public class CampsArchitectureTests
         camp.Active.Should().Be(season2026,
             because: "Active returns the season with the highest Year");
         camp.Active!.Name.Should().Be("Camp 2026");
+    }
+
+    /// <summary>
+    /// Asserts that <see cref="ICampManagement"/> and <see cref="ICampService"/> resolve to the same
+    /// singleton from the production DI registration — <c>Section.Register</c>
+    /// itself, not a test-built mirror of it.
+    /// </summary>
+    [HumansFact]
+    public void ICampManagement_And_ICampService_ResolveToSameInstance()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IClock>());
+        new Section().Register(services, new ConfigurationBuilder().Build());
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var fromManagement = scope.ServiceProvider.GetRequiredService<ICampManagement>();
+        var fromPublic = scope.ServiceProvider.GetRequiredService<ICampService>();
+
+        fromManagement.Should().BeOfType<CachingCampService>(
+            because: "the cache decorator is the section's public face");
+        ReferenceEquals(fromManagement, fromPublic).Should().BeTrue(
+            because: "both interfaces must expose the same singleton so the cache is shared");
     }
 }

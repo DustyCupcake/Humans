@@ -9,7 +9,7 @@ namespace Humans.Budget.Services;
 /// Tickets→Budget bridge: reads paid ticket sales, delegates BudgetLineItem/Projection writes to BudgetService.
 /// </summary>
 internal sealed class TicketingBudgetService(
-    ITicketServiceRead ticketService,
+    ITicketService ticketService,
     IBudgetManagement budgetService,
     IClock clock,
     ILogger<TicketingBudgetService> logger) : ITicketingBudgetService

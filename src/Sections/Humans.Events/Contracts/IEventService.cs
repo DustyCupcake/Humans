@@ -1,14 +1,16 @@
+using Humans.Base.Interfaces;
+
 namespace Humans.Events.Contracts;
 
 /// <summary>
-/// Cross-section read surface for the Events section. Exposes only the
+/// Public contract of the Events section. Exposes only the
 /// approved-event reads other sections need (e.g. the camp detail page's
 /// events card) without granting access to submission, moderation, or
 /// settings writes. Implemented by the same service that backs
-/// <c>IEventService</c>; registered as a forward to the caching
+/// <c>IEventManagement</c>; registered as a forward to the caching
 /// singleton so reads are served from the approved-events cache.
 /// </summary>
-public interface IEventServiceRead
+public interface IEventService : IApplicationService
 {
     /// <summary>
     /// Approved events, optionally filtered by camp / venue / category / free text,

@@ -26,10 +26,10 @@ namespace Humans.Gate.Services;
 /// </summary>
 internal sealed class GateService(
     IGateRepository repository,
-    ITicketServiceRead tickets,
+    ITicketService tickets,
     IEarlyEntryService earlyEntry,
     ISettingsService settingsService,
-    IShiftManagementServiceRead shifts,
+    IShiftManagementService shifts,
     IRoleAssignmentServiceRead roles,
     IUserService users,
     IPasswordHasher<GateStaffPin> pinHasher,

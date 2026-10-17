@@ -16,7 +16,7 @@ internal sealed class VolunteerTrackingService(
     IUserServiceRead userService,
     IShiftViewInvalidator viewInvalidator,
     IClock clock,
-    IAuditLogService audit) : IVolunteerTrackingService, IUserMerge
+    IAuditLogService audit) : IVolunteerTrackingManagement, IUserMerge
 {
     public async Task<bool> SetAvailabilityAsync(Guid userId, Guid eventSettingsId, IReadOnlyList<int> dayOffsets)
     {

@@ -41,7 +41,7 @@ public sealed class VolunteerTrackingExportServiceTests
             ActorPlayaName: "TestActor",
             GeneratedAtUtc: TestNow);
 
-    private static (IShiftManagementRepository repo, IShiftManagementService shiftMgmt, IBurnSettingsService burnSettings, IUserService users)
+    private static (IShiftManagementRepository repo, IShiftManagement shiftMgmt, IBurnSettingsService burnSettings, IUserService users)
         BuildMocks(
             IReadOnlyList<ConfirmedShiftRow> shifts,
             IReadOnlyList<(Guid TeamId, string TeamName)>? departments = null,
@@ -52,7 +52,7 @@ public sealed class VolunteerTrackingExportServiceTests
             Arg.Any<Guid>(), Arg.Any<IEventSettingsInfo>(), Arg.Any<LocalDate>(), Arg.Any<LocalDate>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(shifts);
 
-        var shiftMgmt = Substitute.For<IShiftManagementService>();
+        var shiftMgmt = Substitute.For<IShiftManagement>();
         shiftMgmt.GetDepartmentsWithRotasAsync(EventId)
             .Returns(departments ?? Array.Empty<(Guid, string)>());
         var burnSettings = Substitute.For<IBurnSettingsService>();
@@ -207,7 +207,7 @@ public sealed class VolunteerTrackingExportServiceTests
         var repo = Substitute.For<IShiftManagementRepository>();
         repo.GetConfirmedShiftsInRangeAsync(EventId, Arg.Any<IEventSettingsInfo>(), Day1, Day7, TeamA, Arg.Any<CancellationToken>())
             .Returns(teamAOnly);
-        var shiftMgmt = Substitute.For<IShiftManagementService>();
+        var shiftMgmt = Substitute.For<IShiftManagement>();
         var burnSettings = Substitute.For<IBurnSettingsService>();
         shiftMgmt.GetDepartmentsWithRotasAsync(EventId).Returns([(TeamA, "TeamA")]);
         burnSettings.GetByIdAsync(EventId, Arg.Any<CancellationToken>()).Returns(TestBurnSettings());

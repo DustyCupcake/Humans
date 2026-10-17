@@ -39,7 +39,7 @@ public sealed class EventServiceTests
     private readonly ISettingsService _burnSettings = Substitute.For<ISettingsService>();
     private readonly IUserServiceRead _userService = Substitute.For<IUserServiceRead>();
     private readonly IAuditLogService _audit = Substitute.For<IAuditLogService>();
-    private readonly ICampServiceRead _camps = Substitute.For<ICampServiceRead>();
+    private readonly ICampService _camps = Substitute.For<ICampService>();
     private readonly IEmailService _emailService = Substitute.For<IEmailService>();
     private readonly EventsEmails _emailMessages = new(new StringLocalizer<EventsResource>(new ResourceManagerStringLocalizerFactory(
         Options.Create(new LocalizationOptions()), NullLoggerFactory.Instance)), NullLogger<EventsEmails>.Instance);
@@ -197,7 +197,7 @@ public sealed class EventServiceTests
     [Xunit.InlineData(true)]
     public async Task GuideSettingsForm_DistinguishesMissingEditionFromDependencyFailure(bool dependencyFailure)
     {
-        var guide = Substitute.For<IEventService>();
+        var guide = Substitute.For<IEventManagement>();
         var edition = Guid.NewGuid();
         guide.GetEventSettingsByIdAsync(edition).Returns(BurnFixtures.Burn(year: 2026));
         guide.GetEventSettingsOptionsAsync().Returns(Array.Empty<EventSettingsInfo>());
@@ -366,7 +366,7 @@ public sealed class EventServiceTests
         visible.Category = workshop;
         _repo.Events.AddRange([hidden, visible]);
         var registrations = new ServiceCollection();
-        registrations.AddKeyedScoped<IEventService>(CachingEventService.InnerServiceKey, (_, _) => _service);
+        registrations.AddKeyedScoped<IEventManagement>(CachingEventService.InnerServiceKey, (_, _) => _service);
         using var provider = registrations.BuildServiceProvider();
         var cached = new CachingEventService(provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<CachingEventService>.Instance);
         if (previouslyStored)
@@ -381,7 +381,7 @@ public sealed class EventServiceTests
         }
         else
         {
-            var controller = new EventsApiController(cached, Substitute.For<ICampServiceRead>(), _userService,
+            var controller = new EventsApiController(cached, Substitute.For<ICampService>(), _userService,
                 NullLogger<EventsApiController>.Instance)
             {
                 ControllerContext = new()

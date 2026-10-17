@@ -18,7 +18,7 @@ namespace Humans.Budget.Tests.Services;
 /// </summary>
 public class TicketingBudgetServiceTests
 {
-    private readonly ITicketServiceRead _ticketService = Substitute.For<ITicketServiceRead>();
+    private readonly ITicketService _ticketService = Substitute.For<ITicketService>();
     private readonly IBudgetManagement _budgetService = Substitute.For<IBudgetManagement>();
     private readonly FakeClock _clock = new(Instant.FromUtc(2026, 3, 11, 9, 0)); // Wed 11 Mar 2026
 

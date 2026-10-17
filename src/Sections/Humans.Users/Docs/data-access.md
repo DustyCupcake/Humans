@@ -274,7 +274,7 @@ Unverified import replacements run deletion and provisioning in one serializable
 No repository. GDPR right-to-deletion orchestrator. Fans out over
 `IUserServiceInternal`, `IUserEmailService`, `ITeamService`,
 `IRoleAssignmentService`, `IGdprService` (runs every section's
-`IUserDataContributor` erasure), `ITicketServiceRead`, `IAuditLogService`,
+`IUserDataContributor` erasure), `ITicketService`, `IAuditLogService`,
 `IEmailService` (messages built by `UsersEmails`). Invalidates
 `IUserInfoInvalidator`, `IRoleAssignmentClaimsCacheInvalidator`,
 `IShiftAuthorizationInvalidator`, `IShiftViewInvalidator`. No cache, no
@@ -368,7 +368,7 @@ No `IMemoryCache`.
 ### UsersAudienceService (Scoped)
 
 No repository. Pure read orchestration over `IUserService`
-(`GetAllUserInfosAsync`) and Tickets' `ITicketServiceRead`
+(`GetAllUserInfosAsync`) and Tickets' `ITicketService`
 (`GetTicketOrdersAsync`) to segment accounts by profile-completion /
 ticket-purchase status for the admin audience dashboard. No direct DB
 access, no cache.

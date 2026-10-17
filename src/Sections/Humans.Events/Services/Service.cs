@@ -24,7 +24,7 @@ internal sealed class EventService(
     IEventRepository repo,
     ISettingsService settingsService,
     IUserServiceRead userService,
-    ICampServiceRead camps,
+    ICampService camps,
     IAuditLogService audit,
     IEmailService emailService,
     EventsEmails emailMessages,
@@ -33,7 +33,7 @@ internal sealed class EventService(
     IStringLocalizer<EventsResource> localizer)
     // IUserDataContributor is implemented by CachingEventService, which delegates here —
     // erasure edits cached rows, so the fan-out has to run through the decorator.
-    : IEventService, ICalendarFeedContributor
+    : IEventManagement, ICalendarFeedContributor
 {
     public async Task<EventGuideSettingsView?> GetGuideSettingsAsync(CancellationToken ct = default)
     {
@@ -339,7 +339,7 @@ internal sealed class EventService(
         throw new NotSupportedException(
             "Event search runs against the cached approved-event snapshot in " +
             "CachingEventService. If this is being called on the inner Service it " +
-            "indicates a DI registration mistake — IEventServiceRead must resolve to " +
+            "indicates a DI registration mistake — IEventService must resolve to " +
             "the caching decorator.");
 
     public Task<HashSet<Guid>> GetFavouriteEventIdsAsync(Guid userId, CancellationToken ct = default)

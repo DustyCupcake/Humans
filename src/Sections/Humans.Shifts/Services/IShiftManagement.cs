@@ -16,12 +16,35 @@ namespace Humans.Shifts.Services;
 /// </summary>
 /// <remarks>
 /// The section's own interface; the cross-section members live on
-/// <see cref="IShiftManagementServiceRead"/>, <see cref="IShiftVolunteerProfiles"/>
+/// <see cref="IShiftManagementService"/>, <see cref="IShiftVolunteerProfiles"/>
 /// and <see cref="IShiftSeeding"/>, which this inherits.
 /// </remarks>
-internal interface IShiftManagementService
-    : IShiftManagementServiceRead, IShiftVolunteerProfiles, IShiftSeeding, IApplicationService
+internal interface IShiftManagement
+    : IShiftManagementService, IShiftVolunteerProfiles, IShiftSeeding, IApplicationService
 {
+    // === Dashboard / staffing reads (section-internal — no caller outside the section) ===
+
+    /// <summary>
+    /// Gets the per-day staffing chart snapshot for all periods.
+    /// </summary>
+    Task<ShiftStaffingSnapshot> GetStaffingSnapshotAsync(
+        Guid eventSettingsId, Guid? departmentId = null, ShiftPeriod? period = null,
+        BuildSubPeriod? subPeriod = null);
+
+    /// <summary>
+    /// Gets all parent teams that have active rotas in the given event.
+    /// </summary>
+    Task<IReadOnlyList<(Guid TeamId, string TeamName)>> GetDepartmentsWithRotasAsync(
+        Guid eventSettingsId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns overall shift coverage for the active event:
+    /// (filled signups / total slots, plus the ratio).
+    /// Returns (0, 0, 0d) if no event is active.
+    /// Used by the admin dashboard's shift-coverage stat tile.
+    /// </summary>
+    Task<(int Filled, int Total, double Ratio)> GetOverallCoverageAsync(CancellationToken ct = default);
+
     // === Event settings ===
 
     /// <summary>
@@ -107,7 +130,7 @@ internal interface IShiftManagementService
     /// team-set (the team plus its non-promoted sub-teams);
     /// <paramref name="teamSlug"/> + <paramref name="rotaId"/> → a single rota.
     /// </para>
-    /// Camp labels and roster come from <c>ICampServiceRead</c>; display names
+    /// Camp labels and roster come from <c>ICampService</c>; display names
     /// from <c>IUserServiceRead</c> — no new cross-section interface. Returns
     /// null when <paramref name="teamSlug"/> matches no team, or
     /// <paramref name="rotaId"/> does not belong to the team-set within the event

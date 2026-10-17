@@ -41,7 +41,7 @@ internal sealed class DevPersonaSeeder(
     ISystemTeamSync systemTeamSync,
     IUserService userService,
     IAuditLogService auditLogService,
-    ICampServiceRead campService,
+    ICampService campService,
     ICampSeeding campSeeding,
     ICampRoleSeeding campRoleSeeding,
     IConsentSubmission consentService,

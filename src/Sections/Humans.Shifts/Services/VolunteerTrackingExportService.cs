@@ -18,14 +18,14 @@ namespace Humans.Shifts.Services;
 /// </summary>
 internal sealed class VolunteerTrackingExportService(
     IShiftManagementRepository shiftManagementRepository,
-    IShiftManagementService shiftManagementService,
+    IShiftManagement shiftManagementService,
     IBurnSettingsService burnSettingsService,
     IUserServiceRead userService,
     IAuditLogService audit)
     : IVolunteerTrackingExportService, IEarlyEntryProvider
 {
     private readonly IShiftManagementRepository _shiftManagementRepository = shiftManagementRepository;
-    private readonly IShiftManagementService _shiftManagementService = shiftManagementService;
+    private readonly IShiftManagement _shiftManagementService = shiftManagementService;
     private readonly IBurnSettingsService _burnSettingsService = burnSettingsService;
     private readonly IUserServiceRead _userService = userService;
     private readonly IAuditLogService _audit = audit;

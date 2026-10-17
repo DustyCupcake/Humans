@@ -27,7 +27,7 @@ people get early entry.
 | Member self-service | Request, withdraw request, leave; My Camps card | Own-row mutations keyed by the signed-in user |
 | Camp admin | `/Camps/Admin`: season review, reactivate, name-lock, EE caps, CSV, delete; open/close years from the `/Settings` barrios tab | Cross-camp by design |
 | Role catalogue | `/Camps/Admin/Roles` CRUD + drill-down, `/Camps/Admin/Compliance` | Definitions global, assignments per season |
-| Cross-section reads | `ICampServiceRead`, `ICampLeadDirectory`, `IEarlyEntryProvider`, `IGoogleGroupMembershipSource`, GDPR contributor, account-merge fold | All served from the cached projection except the lead directory and the role-group claim |
+| Cross-section reads | `ICampService`, `ICampLeadDirectory`, `IEarlyEntryProvider`, `IGoogleGroupMembershipSource`, GDPR contributor, account-merge fold | All served from the cached projection except the lead directory and the role-group claim |
 | Composition seams | `ICampPart` contributors on the detail page; Settings tab; nav, help, access matrix, issue queue | Camps names no contributor |
 | Contact relay | `/Camps/{slug}/Contact` → notification to leads | Owns no data |
 | Seeding | `ICampSeeding`, `ICampRoleSeeding` | Dev fixtures only |

@@ -7,7 +7,7 @@ namespace Humans.Camps.Models;
 internal sealed record CampCsvExport(byte[] Content, string ContentType, string FileName);
 
 internal sealed class CampCsvExportBuilder(
-    ICampServiceRead campService, IUserServiceRead userService, IAuditLogService audit)
+    ICampService campService, IUserServiceRead userService, IAuditLogService audit)
 {
     public async Task<CampCsvExport> BuildAsync(Guid actorUserId, CancellationToken ct = default)
     {

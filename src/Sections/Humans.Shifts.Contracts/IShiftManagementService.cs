@@ -1,23 +1,25 @@
 
 using NodaTime;
 
+using Humans.Base.Interfaces;
+
 namespace Humans.Shifts.Contracts;
 
 /// <summary>
-/// Cross-section read surface for the Shifts section. Carved from the call
+/// Public contract for the Shifts section. Carved from the call
 /// sites, not from the interface: these are the members of the section's
-/// internal <c>IShiftManagementService</c> that something outside the section
+/// internal <c>IShiftManagement</c> that something outside the section
 /// actually calls. The rota/shift generation surface, the coordinator
 /// dashboard's aggregate reads and the post-event stats have no
 /// external caller and stay internal.
 /// </summary>
 /// <remarks>
-/// See <c>memory/architecture/section-read-write-split.md</c>. The volunteer
+/// The volunteer
 /// shift-profile cluster is <see cref="IShiftVolunteerProfiles"/> (it carries
 /// writes and would make this name a lie); the dev-fixture verbs are
 /// <see cref="IShiftSeeding"/>.
 /// </remarks>
-public interface IShiftManagementServiceRead
+public interface IShiftManagementService : IApplicationService
 {
     /// <summary>
     /// Whether the user is a department coordinator for the given team
@@ -68,31 +70,10 @@ public interface IShiftManagementServiceRead
     Task<IReadOnlyList<UrgentShiftInfo>> GetBrowseShiftsAsync(ShiftBrowseQuery query, CancellationToken ct = default);
 
     /// <summary>
-    /// Gets the per-day staffing chart snapshot for all periods.
-    /// </summary>
-    Task<ShiftStaffingSnapshot> GetStaffingSnapshotAsync(
-        Guid eventSettingsId, Guid? departmentId = null, ShiftPeriod? period = null,
-        BuildSubPeriod? subPeriod = null);
-
-    /// <summary>
     /// Gets shifts summary aggregated across one or more teams. Returns null if no rotas.
     /// </summary>
     Task<ShiftsSummaryData?> GetShiftsSummaryAsync(
         Guid eventSettingsId, IReadOnlyCollection<Guid> teamIds);
-
-    /// <summary>
-    /// Gets all parent teams that have active rotas in the given event.
-    /// </summary>
-    Task<IReadOnlyList<(Guid TeamId, string TeamName)>> GetDepartmentsWithRotasAsync(
-        Guid eventSettingsId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Returns overall shift coverage for the active event:
-    /// (filled signups / total slots, plus the ratio).
-    /// Returns (0, 0, 0d) if no event is active.
-    /// Used by the admin dashboard's shift-coverage stat tile.
-    /// </summary>
-    Task<(int Filled, int Total, double Ratio)> GetOverallCoverageAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Gets the number of distinct pending shift signups per team for the active event.
@@ -124,7 +105,7 @@ public interface IShiftManagementServiceRead
 
 /// <summary>
 /// One rota that matched a global-search query. Returned by
-/// <see cref="IShiftManagementServiceRead.SearchAsync"/>, already scored by this
+/// <see cref="IShiftManagementService.SearchAsync"/>, already scored by this
 /// section — the orchestrator ranks by <see cref="Score"/> and passes
 /// <see cref="RotaId"/> to <c>&lt;vc:shifts-search-result&gt;</c>, which fetches
 /// the row's team name and link itself.

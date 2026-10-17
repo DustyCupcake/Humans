@@ -19,7 +19,7 @@ internal sealed class AgentUserSnapshotProvider(
     ITeamServiceRead teams,
     IConsentService consents,
     IFeedbackService feedback,
-    ITicketServiceRead tickets,
+    ITicketService tickets,
     IShiftView shiftView,
     ISettingsService settingsService,
     IClock clock) : IAgentUserSnapshotProvider
