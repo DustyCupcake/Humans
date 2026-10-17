@@ -27,10 +27,10 @@ namespace Humans.Users.Controllers;
 internal sealed class UsersAdminController(
     IUserService userService,
     IUserEmailService userEmailService,
-    IEmailOutboxServiceRead emailOutboxService,
+    IEmailOutboxService emailOutboxService,
     IRoleAssignmentService roleAssignmentService,
     IApplicationServiceRead applicationDecisionService,
-    IConsentServiceRead consentService,
+    IConsentService consentService,
     ICampaignServiceRead campaignService,
     IHumanLifecycleService humanLifecycleService,
     IOnboardingIntake onboardingService,

@@ -26,7 +26,7 @@ namespace Humans.Expenses.Services;
 internal sealed class ExpenseReportService(
     IExpenseRepository repo,
     IFileStorage fileStorage,
-    IBudgetServiceRead budgetService,
+    IBudgetService budgetService,
     ITeamServiceRead teamService,
     IUserService userService,
     IUserEmailService userEmailService,
@@ -37,7 +37,7 @@ internal sealed class ExpenseReportService(
     IHoldedFinanceService holdedFinance,
     IClock clock,
     ILogger<ExpenseReportService> logger,
-    IOptions<TravelReimbursementConfig> travelConfig) : IExpenseReportService,
+    IOptions<TravelReimbursementConfig> travelConfig) : IExpenseReportManagement,
         IUserDataContributor
 {
     internal const string ExpenseReports = "ExpenseReports";
