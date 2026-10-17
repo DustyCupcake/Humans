@@ -415,4 +415,6 @@ public enum AuditAction
     CampsExported,
     CantinaRosterExported,
     VolunteerTrackingExported,
+    ExpenseLineDeclined,
+    ExpenseLineDeclineUndone,
 }

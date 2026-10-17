@@ -86,6 +86,9 @@
   <data name="Expenses_LedgerColItem" xml:space="preserve"><value>Concepto</value></data>
   <data name="Expenses_LineBooksOf" xml:space="preserve"><value>Contabiliza {0} de {1} — máximo autorizado</value></data>
   <data name="Expenses_LineNotBooked" xml:space="preserve"><value>No contabilizado — máximo autorizado alcanzado</value></data>
+  <data name="Expenses_Line_Declined" xml:space="preserve"><value>Rechazada</value></data>
+  <data name="Expenses_Line_DeclinedReason" xml:space="preserve"><value>Motivo: {0}</value></data>
+  <data name="Expenses_Line_DeclinedBanner" xml:space="preserve"><value>Un revisor rechazó esta línea. Motivo: {0}. No cuenta en tu total. Sustituye su archivo o elimina la línea para anular el rechazo.</value></data>
   <data name="Expenses_MaxAmount" xml:space="preserve"><value>Importe máximo</value></data>
   <data name="Expenses_MyReportsTitle" xml:space="preserve"><value>Mis informes de gastos</value></data>
   <data name="Expenses_NewReport" xml:space="preserve"><value>Nuevo informe</value></data>
@@ -276,4 +279,10 @@
   <data name="Expenses_Detail_NoHistory" xml:space="preserve"><value>Aún no hay nada registrado.</value></data>
   <data name="Expenses_Detail_UnknownCategory" xml:space="preserve"><value>(categoría desconocida)</value></data>
   <data name="Expenses_IbanPlaceholder" xml:space="preserve"><value>p. ej. ES7921000813610123456789</value></data>
+  <data name="Expenses_Detail_RejectedGuidance" xml:space="preserve"><value>Puedes corregir este informe sin empezar de nuevo: abre cualquier línea de abajo para editarla, sustituir su recibo o eliminarla, y vuelve a enviarlo.</value></data>
+  <data name="Expenses_Detail_RejectedGuidanceLink" xml:space="preserve"><value>Ir a las líneas</value></data>
+  <data name="Expenses_Submitter" xml:space="preserve"><value>Solicitante</value></data>
+  <data name="Expenses_LegalName" xml:space="preserve"><value>Nombre legal</value></data>
+  <data name="Expenses_SubjectHelp" xml:space="preserve"><value>Obligatorio. Indica el nombre del proyecto al que corresponde este gasto, p. ej. el de tu proyecto artístico.</value></data>
+  <data name="Expenses_Validation_SubjectRequired" xml:space="preserve"><value>Añade un asunto (el nombre del proyecto) antes de enviar.</value></data>
 </root>

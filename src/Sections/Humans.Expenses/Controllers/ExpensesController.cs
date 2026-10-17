@@ -185,6 +185,12 @@ internal sealed class ExpensesController(
                 : null;
             var creditor = await GetCreditorBindingViewAsync(report.SubmitterUserId, isFinanceAdmin, HttpContext.RequestAborted);
 
+            // View is held only by the submitter, the category coordinator and finance admins, so
+            // reaching this page already proves the viewer may see who the submitter is. IBAN stays
+            // behind CanSeePayee.
+            var submitterInfo = await _userService.GetUserInfoAsync(report.SubmitterUserId, HttpContext.RequestAborted);
+            var profileLegalName = $"{submitterInfo?.Profile?.FirstName} {submitterInfo?.Profile?.LastName}".Trim();
+
             var model = new ExpenseDetailViewModel
             {
                 Report = report,
@@ -193,6 +199,11 @@ internal sealed class ExpensesController(
                 CanSubmit = await AllowsAsync(report, ExpenseReportOperation.Submit),
                 CanWithdraw = await AllowsAsync(report, ExpenseReportOperation.Withdraw),
                 IsSubmitter = isSubmitter,
+                CanSeeNames = true,
+                SubmitterBurnerName = string.IsNullOrWhiteSpace(submitterInfo?.BurnerName) ? null : submitterInfo!.BurnerName,
+                SubmitterLegalName = !string.IsNullOrWhiteSpace(report.PayeeName)
+                    ? report.PayeeName
+                    : (profileLegalName.Length > 0 ? profileLegalName : null),
                 HasIban = iban.HasIban,
                 MaskedIban = iban.MaskedIban,
                 HoldedTimeline = timeline,
@@ -205,6 +216,7 @@ internal sealed class ExpensesController(
                 CanFinanceReject = decisions.FinanceReject,
                 CanEndorse = decisions.Endorse,
                 CanCoordinatorReject = decisions.CoordinatorReject,
+                CanDeclineLines = await AllowsAsync(report, ExpenseReportOperation.DeclineLine),
                 // Only the approval form offers an account override, so the list is loaded only
                 // for the one viewer who can act on it.
                 Accounts = decisions.Approve ? await BuildAccountOptionsAsync(HttpContext.RequestAborted) : [],
@@ -633,6 +645,41 @@ internal sealed class ExpensesController(
         var result = await service.CoordinatorRejectWithResultAsync(
             id, user.Id, await IsFinanceAdminAsync(), input.Reason);
         SetMutationResult(result, localizer["Expenses_Flash_ReportRejected"], localizer["Expenses_Flash_RejectFailed"]);
+
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    [HttpPost("{id:guid}/Lines/{lineId:guid}/Decline")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeclineLine(Guid id, Guid lineId, DeclineLineInputModel input)
+    {
+        var (errorResult, user, _) = await RequireReportAsync(id, ExpenseReportOperation.DeclineLine);
+        if (errorResult is not null) return errorResult;
+
+        // Reviewer-only: operator feedback stays in English.
+        if (!ModelState.IsValid || string.IsNullOrWhiteSpace(input.Reason))
+        {
+            SetError("A reason is required to decline a line.");
+            return RedirectToAction(nameof(Detail), new { id });
+        }
+
+        var result = await service.DeclineLineWithResultAsync(
+            id, user.Id, await IsFinanceAdminAsync(), lineId, input.Reason);
+        SetMutationResult(result, "Line declined.", "Could not decline the line.");
+
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+
+    [HttpPost("{id:guid}/Lines/{lineId:guid}/UndoDecline")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UndoDeclineLine(Guid id, Guid lineId)
+    {
+        var (errorResult, user, _) = await RequireReportAsync(id, ExpenseReportOperation.DeclineLine);
+        if (errorResult is not null) return errorResult;
+
+        var result = await service.UndoDeclineLineWithResultAsync(
+            id, user.Id, await IsFinanceAdminAsync(), lineId);
+        SetMutationResult(result, "Decline undone.", "Could not undo the decline.");
 
         return RedirectToAction(nameof(Detail), new { id });
     }
