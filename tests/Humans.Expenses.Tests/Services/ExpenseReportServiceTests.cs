@@ -73,6 +73,7 @@ public sealed partial class ExpenseReportServiceTests
     private readonly IEmailService _emailService = Substitute.For<IEmailService>();
     private readonly IHoldedClient _holdedClient = Substitute.For<IHoldedClient>();
     private readonly IHoldedFinanceService _holdedFinance = Substitute.For<IHoldedFinanceService>();
+    private readonly IHoldedFinanceWrite _holdedFinanceWrite = Substitute.For<IHoldedFinanceWrite>();
     private readonly IPreapprovalService _preapprovals = Substitute.For<IPreapprovalService>();
     private readonly IPreapprovalWrite _preapprovalWrites = Substitute.For<IPreapprovalWrite>();
     private readonly ExpenseReportService _sut;
@@ -119,7 +120,7 @@ public sealed partial class ExpenseReportServiceTests
             NullLogger<ExpenseReportService>.Instance,
             Options.Create(new TravelReimbursementConfig()));
         _backgroundProcessor = new ExpenseReportBackgroundProcessor(
-            _expenseRepo, _fileStorage, _userService, _holdedClient, _holdedFinance, AuditLog, Clock,
+            _expenseRepo, _fileStorage, _userService, _holdedClient, _holdedFinance, _holdedFinanceWrite, AuditLog, Clock,
             NullLogger<ExpenseReportBackgroundProcessor>.Instance);
     }
 
@@ -3619,7 +3620,7 @@ public sealed partial class ExpenseReportServiceTests
                 burnerName: "Meri", firstName: "Maria", lastName: "Garcia", iban: "ES9121000418450200051332")));
         _budgetService.GetCategoryByIdAsync(category.Id).Returns(
             MakeCategorySnapshot(category.Id, teamId: null, "Test Category"));
-        _holdedFinance.EnsureCreditorContactAsync(
+        _holdedFinanceWrite.EnsureCreditorContactAsync(
                 Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(),
                 Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns("contact-123");
@@ -3686,7 +3687,7 @@ public sealed partial class ExpenseReportServiceTests
                 iban: "ES9121000418450200051332")));
         _budgetService.GetCategoryByIdAsync(category.Id).Returns(
             MakeCategorySnapshot(category.Id, teamId: null, "Test Category"));
-        _holdedFinance.EnsureCreditorContactAsync(
+        _holdedFinanceWrite.EnsureCreditorContactAsync(
                 Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(),
                 Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns("contact-123");
@@ -3712,6 +3713,7 @@ public sealed partial class ExpenseReportServiceTests
         await SeedApprovedReportWithAttachmentAsync(userId);
         await _backgroundProcessor.DrainHoldedOutboxAsync(100, Xunit.TestContext.Current.CancellationToken);
         _holdedFinance.ClearReceivedCalls();
+        _holdedFinanceWrite.ClearReceivedCalls();
 
         // Act — a fresh report for the same member carries no contact id of its own.
         await SeedApprovedReportWithAttachmentAsync(userId);
@@ -3719,7 +3721,7 @@ public sealed partial class ExpenseReportServiceTests
 
         // Assert — the earlier report's contact id (and its account number) are passed as the seed,
         // so Finance updates the existing contact instead of creating a duplicate.
-        await _holdedFinance.Received(1).EnsureCreditorContactAsync(
+        await _holdedFinanceWrite.Received(1).EnsureCreditorContactAsync(
             userId, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(),
             "contact-123", 40000007, Arg.Any<CancellationToken>());
     }
@@ -3737,7 +3739,7 @@ public sealed partial class ExpenseReportServiceTests
         var reportId = await SeedApprovedReportWithAttachmentAsync(tombstoneId);
         var line = (await _sut.GetAsync(reportId, Xunit.TestContext.Current.CancellationToken))!.Lines[0];
 
-        _holdedFinance.EnsureCreditorContactAsync(
+        _holdedFinanceWrite.EnsureCreditorContactAsync(
                 Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(),
                 Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns("contact-123");
@@ -3767,12 +3769,12 @@ public sealed partial class ExpenseReportServiceTests
         await _backgroundProcessor.DrainHoldedOutboxAsync(100, Xunit.TestContext.Current.CancellationToken);
 
         // Assert — both the binding and its account number land on the survivor, never the tombstone.
-        await _holdedFinance.Received(1).EnsureCreditorContactAsync(
+        await _holdedFinanceWrite.Received(1).EnsureCreditorContactAsync(
             survivorId, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(),
             Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
-        await _holdedFinance.Received(1).SetCreditorAccountNumAsync(
+        await _holdedFinanceWrite.Received(1).SetCreditorAccountNumAsync(
             survivorId, 40000007, Arg.Any<CancellationToken>());
-        await _holdedFinance.DidNotReceive().SetCreditorAccountNumAsync(
+        await _holdedFinanceWrite.DidNotReceive().SetCreditorAccountNumAsync(
             tombstoneId, Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -3803,7 +3805,7 @@ public sealed partial class ExpenseReportServiceTests
         var line = reportBefore!.Lines[0];
 
         // Configure Holded substitutes — contact enrichment is delegated to Finance now.
-        _holdedFinance.EnsureCreditorContactAsync(
+        _holdedFinanceWrite.EnsureCreditorContactAsync(
                 Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(),
                 Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns("contact-123");
@@ -3836,12 +3838,12 @@ public sealed partial class ExpenseReportServiceTests
 
         // Assert — contact enrichment delegated to Finance with the legal name, burner and iban
         // (the contact payload itself — Name/TradeName/CustomId — is covered in HoldedFinanceServiceTests).
-        await _holdedFinance.Received(1).EnsureCreditorContactAsync(
+        await _holdedFinanceWrite.Received(1).EnsureCreditorContactAsync(
             userId, legalName, burnerName, iban,
             Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
 
         // Assert — the resolved 400000xx number is written back to the member's binding
-        await _holdedFinance.Received(1).SetCreditorAccountNumAsync(
+        await _holdedFinanceWrite.Received(1).SetCreditorAccountNumAsync(
             userId, 40000007, Arg.Any<CancellationToken>());
 
         // Assert — contact link mirrored onto the report
