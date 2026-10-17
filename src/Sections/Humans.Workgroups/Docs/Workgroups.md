@@ -434,7 +434,7 @@ should end is the Board's decision, taken on the register in front of them.
   calendar window. Calendar names nothing of Workgroups.
 - **GoogleIntegration**: implements `IGoogleDriveAccessSource` alongside Teams, using the same reconciliation engine (inbound) — Active group
   folders → ContentManager (`fileOrganizer`) for current members (never a pending request), Dormant → Viewer,
-  root → Board readers only. Every folder-bearing group that is neither Active nor Dormant (Applied, Referred, Refused,
+  root → Board readers only. Every claim carries the group's name (`Workgroups` for the root) as the fallback when GoogleIntegration cannot resolve the folder's Drive path, so removal emails and the sync log never show a raw folder id. Every folder-bearing group that is neither Active nor Dormant (Applied, Referred, Refused,
   Withdrawn) remains claimed with an empty roster so existing direct grants are revoked. Calls `IGoogleSyncService.CreateSubfolderAsync` (registration) and
   `RequestSyncAsync` (every access-relevant change) outbound.
 - **Settings**: `ISettingsService` — legacy root-folder read fallback until the admin saves section-owned settings.
