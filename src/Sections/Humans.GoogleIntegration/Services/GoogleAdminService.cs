@@ -150,6 +150,11 @@ internal sealed class GoogleAdminService(
         }
 
         var normalizedPrefix = emailPrefix.Trim().ToLowerInvariant();
+        if (!EmailProvisioningService.IsValidWorkspaceUsername(normalizedPrefix))
+        {
+            logger.LogWarning("Standalone Workspace provisioning rejected an invalid username for actor {ActorUserId}", actorUserId);
+            return new WorkspaceAccountActionResult(false, ErrorMessage: EmailProvisioningService.InvalidEmailPrefixMessage);
+        }
         var fullEmail = $"{normalizedPrefix}@{NobodiesTeamDomain}";
 
         // Check DB first: reject if the address is already tied to any human in our system.
@@ -645,10 +650,9 @@ internal sealed class GoogleAdminService(
     {
         try
         {
-            // Issue #635 (§15i): read UserEmails through the owning section
-            // service (design-rules §2c) instead of traversing user.UserEmails
-            // cross-domain. The service returns row snapshots so this caller
-            // can read per-row IsVerified / IsGoogle / Provider flags.
+            // Read UserEmails through the owning section service (design-rules §2c).
+            // The service returns row snapshots so this caller can read per-row
+            // IsVerified / IsGoogle / Provider flags.
             var allUsers = await userService.GetAllUserInfosAsync(ct).ConfigureAwait(false);
             var allUserIds = allUsers.Select(u => u.Id).ToList();
             var emailsByUserId = await userEmailService.GetEntitiesByUserIdsAsync(allUserIds, ct);

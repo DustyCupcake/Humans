@@ -227,7 +227,23 @@ public class GoogleAdminServiceTests
     // --- ProvisionStandaloneAccountAsync ---
 
     [HumansFact]
-    public async Task ProvisionStandaloneAccountAsync_CreatesAccountAndAudits()
+    public async Task ProvisionStandaloneAccountAsync_RejectsInvalidUsernameBeforeWorkspaceReadsOrWrites()
+    {
+        _workspaceUserService.ClearReceivedCalls();
+
+        var result = await _service.ProvisionStandaloneAccountAsync(
+            "bad@name", "First", "Last", _actorUserId);
+
+        result.Success.Should().BeFalse();
+        _workspaceUserService.ReceivedCalls().Should().BeEmpty();
+        _userEmailService.ReceivedCalls().Should().BeEmpty();
+        _auditLogService.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [HumansTheory]
+    [Xunit.InlineData("test", "test")]
+    [Xunit.InlineData("Müller", "müller")]
+    public async Task ProvisionStandaloneAccountAsync_CreatesAccountAndAudits(string prefix, string normalizedPrefix)
     {
         _workspaceUserService.GetAccountAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((WorkspaceUserAccount?)null);
@@ -238,11 +254,14 @@ public class GoogleAdminServiceTests
                 DateTime.UtcNow, null, IsEnrolledIn2Sv: false));
 
         var result = await _service.ProvisionStandaloneAccountAsync(
-            "test", "Test", "User", _actorUserId, Xunit.TestContext.Current.CancellationToken);
+            prefix, "Test", "User", _actorUserId, Xunit.TestContext.Current.CancellationToken);
 
         result.Success.Should().BeTrue();
         result.TemporaryPassword.Should().NotBeNullOrEmpty();
-        result.Message.Should().Contain("test@nobodies.team");
+        result.Message.Should().Contain($"{normalizedPrefix}@nobodies.team");
+        await _workspaceUserService.Received(1).ProvisionAccountAsync(
+            $"{normalizedPrefix}@nobodies.team", "Test", "User", Arg.Any<string>(), null,
+            Xunit.TestContext.Current.CancellationToken);
 
         await _auditLogService.Received(1).LogAsync(
             Arg.Any<AuditAction>(),
@@ -819,8 +838,7 @@ public class GoogleAdminServiceTests
 
         // Issue nobodies-collective/Humans#687: AddVerifiedEmailAsync creates the
         // row and the UserEmailService orchestrator stamps IsGoogle via
-        // EnsureGoogleInvariantAsync — no separate legacy GoogleEmail write to
-        // User.GoogleEmail. GoogleEmailStatus is reset explicitly so
+        // EnsureGoogleInvariantAsync. GoogleEmailStatus is reset explicitly so
         // reconciliation resumes.
         await _userEmailService.Received(1)
             .AddVerifiedEmailAsync(userId, "alice@nobodies.team", Arg.Any<CancellationToken>());
