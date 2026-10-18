@@ -209,6 +209,7 @@ This section's controllers. `TeamController` (`[Route("Teams")]`) handles both a
 
 - Expected create, edit, deactivate, join-request rejection and member add/remove rejections log at Warning with their reason and applicable team id, without exception stacks. Form feedback and redirects are unchanged.
 
+- The Teams GDPR slices follow the subject’s resolved merge chain, including ended memberships retained on archived IDs. Requests under an archived ID return the same data.
 - The `TeamJoinRequests` GDPR export includes the person’s request and review notes plus chronological status-history entries (status, UTC change time and notes). Other users’ requests are excluded.
 
 - Member-facing team details, membership, birthdays, roster, map and join pages localize their breadcrumb navigation label in all six supported cultures.
@@ -219,7 +220,7 @@ This section's controllers. `TeamController` (`[Route("Teams")]`) handles both a
 
 - Team member paging clamps pages below one to one and calculates large offsets without integer overflow; pages beyond the membership list stay empty.
 
-- My Teams reads the current member’s pending join requests live through the inner service, with team links and withdrawal forms; resolved requests and other members’ requests are excluded.
+- My Teams reads the current member’s pending join requests live through the inner service, with team links and withdrawal forms; resolved requests and other members’ requests are excluded. Concurrent request submissions share a short in-process gate through the insert, so one creates the Pending row and the other receives the existing already-pending refusal. Notices run after the gate is released.
 - Birthday, My Teams and join-form GETs carry request cancellation through current-user resolution and their read-only Users/Teams calls. Join POST and membership mutations keep their existing cancellation policy.
 
 - A department can have **at most one** role flagged as management (coordinator). Enforced in both the toggle and edit paths.
@@ -252,13 +253,14 @@ This section's controllers. `TeamController` (`[Route("Teams")]`) handles both a
 - The Teams directory (`/Teams`) shows only **directory-visible** teams: top-level teams (departments) always appear; sub-teams only appear if `IsPromotedToDirectory` is true. Sub-teams are always accessible from their parent team's detail page regardless of this flag.
 - `team_join_request_state_history` is append-only per §12.
 - Resource-based authorization per design-rules §11: `TeamAuthorizationHandler` + `TeamOperationRequirement`.
-- Early Entry is gated by the per-team `EarlyEntryEnabled` flag: only enabled teams contribute EE grants to the cross-section roster, expose the EE management page, and accept new grants (`AddEarlyEntryGrantAsync` rejects a disabled team). Multiple teams may enable it. A flag change evicts the EE cache after the team save attempt, including uncertain save completion, so reads during the save cannot retain grants under the old flag.
+- Early Entry is gated by the per-team `EarlyEntryEnabled` flag: only enabled teams contribute EE grants to the cross-section roster, expose the EE management page, and accept new grants (`AddEarlyEntryGrantAsync` rejects a disabled team). Multiple teams may enable it. A flag or team-name change evicts the EE cache after the team save attempt, including uncertain save completion, so reads during the save cannot retain grants under the old flag.
 - Inactive teams grant no Early Entry: the roster excludes grants of deactivated teams, and deactivating, reactivating or deleting a team evicts the EE cache. Grants are kept and resume if the team is reactivated.
 - Toggling `EarlyEntryEnabled` off never deletes existing grants — they simply stop appearing on the roster while disabled.
 - `RemoveEarlyEntryGrantAsync` is idempotent (removing an absent grant is a no-op).
 - `ManageEarlyEntry` authority: Admin / TeamsAdmin / Board on any team; `EETeamAdmin` on any team (this operation only); a team coordinator (or parent-department coordinator) on their own team.
 - `EETeamAdmin` is in `RoleNames.All` and `RoleNames.BoardManageableRoles` (board-grantable, surfaces in the role-assignment UI) but deliberately **not** in the `AnyAdminRole` policy — its only surface is the per-team `Teams/{slug}/EarlyEntry` page reached from Team Details, not the admin shell. The omission is the design, not a gap.
 - The Members page's `@nobodies.team` column is this section's own: `TeamAdminController.Members` batches each member's verified nobodies.team email through `IUserService.GetUserInfosAsync` and the view renders the address, or a form posting to this controller's own `ProvisionEmail`, itself (nobodies-collective/Humans#1815). It is not a cross-section widget.
+- Workspace provisioning shows credential-handoff warnings separately from account creation: a created and linked account remains successful when its credentials email cannot be queued or has no recovery address. The coordinator sees the admin password-reset guidance; accepted handoffs are described as queued rather than delivered.
 
 ## Negative Access Rules
 
@@ -273,17 +275,17 @@ This section's controllers. `TeamController` (`[Route("Teams")]`) handles both a
 
 - Membership inserts and join approvals return the existing-member outcome only for `IX_team_members_active_unique` collisions; unrelated persistence failures propagate.
 
-- When a join request is approved, a team membership record is created and the human is notified. Added-member emails and notices use the recipient's supported saved language, with English fallback for blank, invalid or unsupported preferences. Notices reuse the translated email subject and the recipient language already prepared for email, retaining that language if email preparation/delivery fails. Approval, rejection and member-removal notices use the recipient’s supported saved language across all six cultures, with English fallback for missing/unsupported languages or a failed language lookup.
+- When a join request is approved, a team membership record is created and the human is notified. Added-member emails and notices use the recipient's supported saved language, with English fallback for blank, invalid or unsupported preferences. Welcome emails HTML-encode team and resource links as well as names. Notices reuse the translated email subject and the recipient language already prepared for email, retaining that language if email preparation/delivery fails. Approval, rejection and member-removal notices use the recipient’s supported saved language across all six cultures, with English fallback for missing/unsupported languages or a failed language lookup.
 - When a member is removed from a team, all their role assignments for that team are also removed.
 - Membership adds append the Google outbox event atomically. When dispatched, the Google gateway grants Drive access and queues Group reconciliation, including parent resources for sub-team adds. `TeamDriveAccessSource` owns expected Drive access: shared-resource membership union, maximum permission level per member, and active child-team rollup into parent resources. Per-user removals are deferred to the daily reconciliation job rather than running inline. The outbox processor retries failed grants. Team-folder Drive roles are fully managed: a direct role above the claim (e.g. raised by hand) shows as a pending downgrade on `/Google/Sync` and is lowered by an `AddAndRemove` reconciliation; a folder a workgroup also claims gets the union of both claims.
 - When a department coordinator role assignment changes, the Coordinators system team membership is recalculated for the affected human. Sub-team manager changes do not affect the Coordinators system team.
 - The system team sync job runs hourly (Hangfire recurring job `teams-system-sync`), reconciling system team membership for Volunteers (consent compliance), Coordinators (department-level management role assignments), Board (active Board role assignments), Asociados/Colaboradors (approved tier applications with active terms), and Barrio Leads (active camp lead assignments). The job also reconciles `TeamMember.Role` against `IsManagement` role assignments. Its final `IGoogleGroupSync.ReconcileAllAsync` pass records `SystemTeamSync` on group sync logs and retries. Without Google Workspace credentials (`IGoogleDriveActivityClient.IsConfigured`), it logs and skips that pass; the membership work itself always runs.
-- When an account merge accepts, `TeamService` participates through `IUserMerge.ReassignAsync`, folding `TeamMember`, `TeamJoinRequest`, and `TeamEarlyEntryGrant` rows onto the target account. Only a source Pending join request colliding with a target Pending request for the same team is dropped; Approved, Rejected and Withdrawn requests and their state history survive on the target. Called by `AccountMergeService.AcceptAsync` (Users section).
+- When an account merge accepts, `TeamService` participates through `IUserMerge.ReassignAsync`, ending source non-system memberships and adding the survivor where needed; source membership rows remain as history. Join requests and early-entry grants move to the target account. Only a source Pending join request colliding with a target Pending request for the same team is dropped; Approved, Rejected and Withdrawn requests and their state history survive on the target. Called by `AccountMergeService.AcceptAsync` (Users section).
 - Account merge and GDPR erasure evict the notification meter after folding or deleting join requests, so the pending count refreshes with the team projection. Existing early-entry and membership-cache invalidation remain in place.
 - Each Early Entry mutation writes an `AuditLogEntry` (`EarlyEntryGranted` on add, `EarlyEntryUpdated` on edit, `EarlyEntryRevoked` on remove) against the `TeamEarlyEntryGrant` and evicts the affected user's EE cache.
 - Right-to-erasure (`IUserDataContributor.EraseForUserAsync`): ends live memberships, then hard-deletes the user's join requests and EE grants; the GDPR export contributes a `TeamEarlyEntry` data slice.
 
-- Team names in notices may outgrow the 200-character title limit. These producers bound titles by Unicode character, preserving the full title and existing detail in the body; short notice copy is unchanged.
+- Team names in notices may outgrow the 200-character title limit. Teams sends full copy to Notifications, which bounds stored previews by Unicode character, preserving the full title and existing detail in the body; short notice copy is unchanged.
 
 ## Cross-Section Dependencies
 
