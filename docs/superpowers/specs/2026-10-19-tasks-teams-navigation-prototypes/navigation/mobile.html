@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phone layout comparison - Humans</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/tokens.css">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/site.css">
+<link rel="stylesheet" href="nav.css">
+</head>
+<body>
+<div class="env-banner">Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype</div>
+<div class="proto-bar"><div class="container d-flex flex-wrap align-items-center gap-2">
+  <span class="label">Viewing as</span>
+  <div class="btn-group" role="group">
+    <button class="btn btn-sm btn-outline-secondary active" data-v="visitor">Visitor</button>
+    <button class="btn btn-sm btn-outline-secondary" data-v="holder">Holder</button>
+    <button class="btn btn-sm btn-outline-secondary" data-v="coordinator">Coordinator</button>
+  </div>
+  <span class="text-muted">Scroll inside each phone. Both columns show the same pages and data; only the layout differs.</span>
+</div></div>
+
+<div class="container main-content"><main class="pb-3">
+<h2 class="mb-1">Where do the important links go on a phone?</h2>
+<p class="text-muted">Mock-up of the <em>page actions on phones</em> section of the <a href="../../2026-10-19-navigation-design.md">navigation spec</a>. Each phone is the real responsive page at 344&nbsp;px wide. The proposed column also shows the bottom tab bar from the navigation proposal; &ldquo;today&rdquo; keeps the current scrolling link strip.</p>
+
+<h4 class="mt-4">Team page</h4>
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="cmp-label">Today<span>Actions and contact sit in a side column that stacks after the main content</span></div>
+    <div class="phone-frame"><iframe data-page="team-page-today.html" title="Team page, today's layout"></iframe></div>
+    <ul class="notice"><li>The contact point and next meeting come after the whole task list.</li><li>Nothing is reachable without scrolling a long way.</li></ul>
+  </div>
+  <div class="col-md-6">
+    <div class="cmp-label">Proposed<span>Header actions, at-a-glance cards first, sticky action bar</span></div>
+    <div class="phone-frame"><iframe data-page="team-page.html" title="Team page, proposed layout"></iframe></div>
+    <ul class="notice"><li>Title and primary action are at the top, as on desktop.</li><li>Contact and next meeting are a swipeable strip above the tasks, with a "Swipe" hint, a peeking next card and dots.</li><li>The decisive action is pinned above the bottom tab bar, which tucks away while you read and returns on scroll up.</li><li>Jump chips and collapsed cards shorten the page.</li></ul>
+  </div>
+</div>
+
+<h4>Task page</h4>
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="cmp-label">Today<span>What the task grants and whether it fits sit in the side column, after everything else</span></div>
+    <div class="phone-frame"><iframe data-page="task-today.html" title="Task page, today's layout"></iframe></div>
+    <ul class="notice"><li>You can reach &ldquo;Ask to pick up&rdquo; before ever seeing what access it gives you.</li></ul>
+  </div>
+  <div class="col-md-6">
+    <div class="cmp-label">Proposed<span>The decision information comes first; the action stays pinned</span></div>
+    <div class="phone-frame"><iframe data-page="task.html" title="Task page, proposed layout"></iframe></div>
+    <ul class="notice"><li>Access and fit are a swipeable strip right under the title, with the same cues.</li><li>&ldquo;Ask to pick up&rdquo; and &ldquo;Shadow&rdquo; stay pinned above the tab bar.</li><li>Following and staffing controls stay in the context area, last.</li></ul>
+  </div>
+</div>
+
+<p class="proto-note">View over <code>http://127.0.0.1:8765/docs/superpowers/specs/2026-10-19-tasks-teams-navigation-prototypes/navigation/mobile.html</code> (serve the repository root with <code>python3 -m http.server 8765</code>).</p>
+</main></div>
+<script>
+  var viewer = 'visitor';
+  function load() {
+    document.querySelectorAll('iframe[data-page]').forEach(function (f) { f.src = '../tasks/' + f.dataset.page + '#viewer=' + viewer; });
+  }
+  document.querySelectorAll('[data-v]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      viewer = b.dataset.v;
+      document.querySelectorAll('[data-v]').forEach(function (x) { x.classList.toggle('active', x === b); });
+      document.querySelectorAll('iframe[data-page]').forEach(function (f) {
+        try { f.contentWindow.location.hash = 'viewer=' + viewer; } catch (e) { f.src = '../tasks/' + f.dataset.page + '#viewer=' + viewer; }
+      });
+    });
+  });
+  load();
+</script>
+</body>
+</html>

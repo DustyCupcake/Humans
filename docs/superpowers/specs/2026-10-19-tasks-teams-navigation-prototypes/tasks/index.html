@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tasks prototypes - Humans</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/tokens.css">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/site.css">
+<link rel="stylesheet" href="_proto.css">
+</head>
+<body data-proto-viewer="off">
+<header>
+  <nav class="navbar navbar-expand navbar-dark mb-3">
+    <a class="navbar-brand" href="index.html"><img src="../../../../../src/Humans.Web/wwwroot/img/logo.svg" alt="" aria-hidden="true"> Humans</a>
+  </nav>
+</header>
+<div class="container main-content"><main class="pb-3">
+<h2>Tasks &mdash; UI prototypes</h2>
+<p class="text-muted">Static, fake-data mock-ups of the <a href="../../2026-10-19-tasks-module-design.md">Tasks</a> and <a href="../../2026-10-19-teams-on-tasks-design.md">Teams on tasks</a> specs. They load Humans&rsquo; real <code>tokens.css</code> and <code>site.css</code>, so the look is the app&rsquo;s own; only the components in <code>_proto.css</code> are new proposals. Nothing is wired up.</p>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-6"><div class="card h-100"><div class="card-body">
+    <h5 class="card-title"><a href="team-page.html">Team page</a></h5>
+    <p class="small mb-2">Changes with involvement: switch <em>Visitor / Contributor / Holder / Coordinator</em> in the bar. Tasks as List, Board and Timeline; contact point; next meeting with a scheduling poll; milestone timeline with both reporting layers; coordinator staffing panel.</p>
+    <span class="pill">Spec: Teams on tasks &middot; Tasks</span>
+  </div></div></div>
+  <div class="col-md-6"><div class="card h-100"><div class="card-body">
+    <h5 class="card-title"><a href="task.html">Task page</a></h5>
+    <p class="small mb-2">Slots (hands on the work vs learning alongside), status, dates that follow the production calendar, dependencies, subtasks, checklist, notes / comments / activity, the access the task grants, and the coordinator&rsquo;s staffing controls.</p>
+    <span class="pill">Spec: Tasks</span>
+  </div></div></div>
+  <div class="col-md-6"><div class="card h-100"><div class="card-body">
+    <h5 class="card-title"><a href="get-involved.html">Get involved</a></h5>
+    <p class="small mb-2">Org-wide open tasks, ranked by urgency then fit. Featured band, filters, &ldquo;My tasks&rdquo;. Tick <em>I hold the curate task</em> in the bar to see featuring and the needs-attention queue.</p>
+    <span class="pill">Spec: Tasks</span>
+  </div></div></div>
+  <div class="col-md-6"><div class="card h-100"><div class="card-body">
+    <h5 class="card-title"><a href="production.html">Production view</a></h5>
+    <p class="small mb-2">Phase spine, reporting by team, overdue, teams without coordination, and a switch for the team-reporting layer.</p>
+    <span class="pill">Spec: Tasks &middot; production calendar</span>
+  </div></div></div>
+</div>
+
+<h5>What is new versus Humans&rsquo; existing look</h5>
+<ul class="small">
+  <li><strong>Reused as-is:</strong> navbar, cards, buttons, badges, breadcrumb, list groups, alerts, forms, Font Awesome icons.</li>
+  <li><strong>New components (in <code>_proto.css</code>):</strong> avatars, criticality and status pills, slot dots, task rows, milestone list, status steps, board, gantt-lite timeline, production matrix and phase spine, poll cells.</li>
+  <li><strong>Not designed yet:</strong> mobile polish, empty states, the Concerns screens, notifications, drag-and-drop behaviour, the proposals queue, the Calendar tab, localization.</li>
+</ul>
+<p class="proto-note">The team and task pages use the <em>page actions on phones</em> pattern (header actions, at-a-glance cards first, sticky action bar); compare with today's layout side by side in the <a href="../navigation/mobile.html">phone comparison</a>.</p>
+<p class="proto-note mt-2">The top bar on these pages predates the <a href="../navigation/index.html">navigation proposal</a>: Get involved and Production are meant to live inside its group menus, not as extra top-level links.</p>
+<p class="proto-note mt-2">View locally: <code>python3 -m http.server</code> from the repository root, then open <code>/docs/superpowers/specs/2026-10-19-tasks-teams-navigation-prototypes/tasks/</code>. Opening the files directly loses the repository stylesheets.</p>
+</main></div>
+<script src="_proto.js"></script>
+</body>
+</html>

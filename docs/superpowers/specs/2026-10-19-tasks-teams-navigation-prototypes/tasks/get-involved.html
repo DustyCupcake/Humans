@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Get involved (prototype) - Humans</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/tokens.css">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/site.css">
+<link rel="stylesheet" href="_proto.css">
+</head>
+<body data-proto-curator="on" data-nav-group="involved">
+<header>
+  <nav class="navbar navbar-expand navbar-dark mb-3">
+    <a class="navbar-brand" href="index.html"><img src="../../../../../src/Humans.Web/wwwroot/img/logo.svg" alt="" aria-hidden="true"> Humans</a>
+    <div class="navbar-links"><ul class="navbar-nav">
+      <li class="nav-item"><a class="nav-link" href="team-page.html">Teams</a></li>
+      <li class="nav-item"><a class="nav-link active" href="get-involved.html">Get involved</a></li>
+      <li class="nav-item"><a class="nav-link" href="production.html">Production</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Calendar</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Shifts</a></li>
+    </ul></div>
+    <div class="d-flex align-items-center gap-2"><span class="d-none d-md-inline text-white small">Sunny</span><span class="avatar you">SU</span></div>
+  </nav>
+</header>
+
+<div class="container main-content"><main class="pb-3">
+
+<h2 class="mb-1">Get involved</h2>
+<p class="text-muted">Open tasks across every team &mdash; most urgent first, then the best fit for you. Nothing here needs you to join anything.</p>
+
+<!-- Featured -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card h-100">
+    <div class="card-body">
+      <div class="d-flex justify-content-between"><span class="pill gold"><i class="fa-solid fa-star"></i> Featured</span><span class="small text-muted">Barrio Support</span></div>
+      <h5 class="card-title mt-2">Coordinate barrio placement requests</h5>
+      <p class="small text-muted mb-2">Help barrios find their place on the 2027 map. Spanish helps.</p>
+      <span class="fit"><i class="fa-solid fa-circle-check"></i>Fits you: speaks Spanish</span>
+    </div>
+    <div class="card-footer bg-transparent d-flex justify-content-between align-items-center"><a href="task.html" class="btn btn-sm btn-primary">See task</a><button class="btn btn-sm btn-link text-muted" data-curator>Unfeature</button></div>
+  </div></div>
+  <div class="col-md-4"><div class="card h-100">
+    <div class="card-body">
+      <div class="d-flex justify-content-between"><span class="pill gold"><i class="fa-solid fa-star"></i> Featured</span><span class="small text-muted">Power</span></div>
+      <h5 class="card-title mt-2">Second pair of eyes on generator plans</h5>
+      <p class="small text-muted mb-2">Shadow our electrician and learn how plans are checked. No experience needed.</p>
+      <span class="pill ok"><i class="fa-regular fa-eye"></i> Shadow spot open</span>
+    </div>
+    <div class="card-footer bg-transparent d-flex justify-content-between align-items-center"><a href="task.html" class="btn btn-sm btn-primary">See task</a><button class="btn btn-sm btn-link text-muted" data-curator>Unfeature</button></div>
+  </div></div>
+  <div class="col-md-4"><div class="card h-100">
+    <div class="card-body">
+      <div class="d-flex justify-content-between"><span class="pill gold"><i class="fa-solid fa-star"></i> Featured</span><span class="small text-muted">Welcome</span></div>
+      <h5 class="card-title mt-2">Run the Thursday newcomer call</h5>
+      <p class="small text-muted mb-2">An hour a week saying hello to people who just joined.</p>
+      <span class="pill">~1 h / week &middot; ongoing</span>
+    </div>
+    <div class="card-footer bg-transparent d-flex justify-content-between align-items-center"><a href="task.html" class="btn btn-sm btn-primary">See task</a><button class="btn btn-sm btn-link text-muted" data-curator>Unfeature</button></div>
+  </div></div>
+</div>
+
+<div class="row">
+<div class="col-lg-8">
+
+  <!-- Filters -->
+  <div class="card mb-3"><div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-md-4"><input class="form-control form-control-sm" placeholder="Search tasks&hellip;"></div>
+      <div class="col-6 col-md-2"><select class="form-select form-select-sm"><option>All teams</option><option>Barrio Support</option><option>Power</option><option>Welcome</option></select></div>
+      <div class="col-6 col-md-2"><select class="form-select form-select-sm"><option>Any phase</option><option>Pre-production</option><option>Placement &amp; power</option><option>Build</option></select></div>
+      <div class="col-6 col-md-2"><select class="form-select form-select-sm"><option>Any effort</option><option>&lt; 2 h</option><option>~ a day</option><option>ongoing</option></select></div>
+      <div class="col-6 col-md-2"><select class="form-select form-select-sm"><option>Any priority</option><option>Critical</option><option>Important</option></select></div>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-3 mt-2 small">
+      <label class="d-flex align-items-center gap-1"><input type="checkbox" checked> Fits me first</label>
+      <label class="d-flex align-items-center gap-1"><input type="checkbox"> Include filled &amp; shadow-only</label>
+      <span class="ms-auto text-muted">Saved: <span class="pill">Spanish &middot; &lt; 5 h</span> <a href="#">save this filter</a></span>
+    </div>
+  </div></div>
+
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center"><span>Open tasks &middot; 23</span><span class="small text-muted">Understaffed &rarr; critical &rarr; fit &rarr; soonest</span></div>
+    <ul class="task-list">
+
+      <li class="task-row is-critical">
+        <div>
+          <div class="small text-muted">Barrio Support</div>
+          <a href="task.html" class="title">Coordinate barrio placement requests</a>
+          <div class="mt-1 d-flex flex-wrap gap-2"><span class="badge crit crit-critical">Critical</span><span class="pill danger">Understaffed &middot; needs 2</span><span class="pill warn"><i class="fa-solid fa-hand"></i> Needs attention</span></div>
+          <div class="meta"><span class="slots"><span class="dot filled"></span><span class="dot gap"></span><span class="dot"></span> 1 of 3</span><span>~12 h</span><span>1 Mar &rarr; 15 Apr</span><span class="fit"><i class="fa-solid fa-circle-check"></i>Fits you</span></div>
+        </div>
+        <div class="actions"><a href="task.html" class="btn btn-outline-primary btn-sm">Ask to pick up</a>
+          <span data-curator class="d-flex gap-1"><button class="btn btn-sm btn-outline-secondary">Feature</button><button class="btn btn-sm btn-outline-secondary">Nominate</button></span></div>
+      </li>
+
+      <li class="task-row is-critical">
+        <div>
+          <div class="small text-muted">Cantina</div>
+          <a href="task.html" class="title">Own the dietary-needs sheet</a>
+          <div class="mt-1 d-flex flex-wrap gap-2"><span class="badge crit crit-critical">Critical</span><span class="pill danger">Understaffed &middot; needs 1</span><span class="pill"><i class="fa-solid fa-key"></i> Sensitive access &middot; confirmed</span></div>
+          <div class="meta"><span class="slots"><span class="dot gap"></span> 0 of 1</span><span>~2 h / week &middot; ongoing</span><span class="tag">spreadsheets</span></div>
+        </div>
+        <div class="actions"><a href="task.html" class="btn btn-outline-primary btn-sm">Ask to pick up</a></div>
+      </li>
+
+      <li class="task-row is-important">
+        <div>
+          <div class="small text-muted">Power</div>
+          <a href="task.html" class="title">Second pair of eyes on generator plans</a>
+          <div class="mt-1 d-flex flex-wrap gap-2"><span class="badge crit crit-important">Important</span><span class="pill ok"><i class="fa-regular fa-eye"></i> Shadow spot open</span><span class="pill gold"><i class="fa-solid fa-star"></i> Featured</span></div>
+          <div class="meta"><span class="slots"><span class="dot filled"></span><span class="dot filled"></span><span class="dot shadow"></span> 2 of 2 + shadow</span><span>~6 h</span><span class="tag">electrics</span></div>
+        </div>
+        <div class="actions"><a href="task.html" class="btn btn-outline-primary btn-sm">Shadow this</a></div>
+      </li>
+
+      <li class="task-row is-important">
+        <div>
+          <div class="small text-muted">Welcome</div>
+          <a href="task.html" class="title">Run the Thursday newcomer call</a>
+          <div class="mt-1 d-flex flex-wrap gap-2"><span class="badge crit crit-important">Important</span><span class="pill ok"><i class="fa-solid fa-door-open"></i> Open to people already in Welcome</span></div>
+          <div class="meta"><span class="slots"><span class="dot filled"></span><span class="dot"></span> 1 of 2</span><span>~1 h / week</span><span class="fit"><i class="fa-solid fa-circle-check"></i>Fits you: you speak 3 languages</span></div>
+        </div>
+        <div class="actions"><a href="task.html" class="btn btn-outline-primary btn-sm">Ask to pick up</a></div>
+      </li>
+
+      <li class="task-row is-nice">
+        <div>
+          <div class="small text-muted">Art Grants</div>
+          <a href="task.html" class="title">Photograph last year&rsquo;s funded pieces</a>
+          <div class="mt-1 d-flex flex-wrap gap-2"><span class="badge crit crit-nice">Nice to have</span><span class="pill">Good first task</span></div>
+          <div class="meta"><span class="slots"><span class="dot"></span> 0 of 2</span><span>~3 h</span><span class="tag">photography</span></div>
+        </div>
+        <div class="actions"><a href="task.html" class="btn btn-outline-primary btn-sm">Ask to pick up</a></div>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<div class="col-lg-4">
+  <div class="card mb-4">
+    <div class="card-header">My tasks</div>
+    <div class="card-body small" data-levels="0">You don&rsquo;t hold any tasks yet. Start with one that fits &mdash; or just follow a team.</div>
+    <ul class="list-group list-group-flush small" data-levels="1-3">
+      <li class="list-group-item d-flex justify-content-between"><a href="task.html">Run the barrio welcome call</a><span class="pill ok">In progress</span></li>
+      <li class="list-group-item d-flex justify-content-between"><a href="task.html">Draft the barrio guide</a><span class="pill info">Waiting</span></li>
+      <li class="list-group-item text-muted">Following 3 tasks &middot; 1 team</li>
+    </ul>
+  </div>
+
+  <div class="card mb-4" data-curator>
+    <div class="card-header d-flex justify-content-between"><span>Needs attention</span><span class="pill gold">Curator</span></div>
+    <ul class="list-group list-group-flush small">
+      <li class="list-group-item">
+        <div class="fw-semibold">Coordinate barrio placement requests</div>
+        <div class="text-muted">Raised by Fern &middot; 3 days &middot; no pick-up requests answered</div>
+        <div class="mt-1 d-flex gap-1"><button class="btn btn-sm btn-outline-secondary">Feature</button><button class="btn btn-sm btn-outline-secondary">Nominate</button><button class="btn btn-sm btn-link">Hand back</button></div>
+      </li>
+      <li class="list-group-item">
+        <div class="fw-semibold">Own the dietary-needs sheet</div>
+        <div class="text-muted">Raised automatically &middot; critical, understaffed 14 days</div>
+        <div class="mt-1 d-flex gap-1"><button class="btn btn-sm btn-outline-secondary">Feature</button><button class="btn btn-sm btn-outline-secondary">Nominate</button></div>
+      </li>
+    </ul>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body small">
+      <p class="mb-2"><strong>Not sure where to start?</strong> Filter by &ldquo;Fits me first&rdquo; &mdash; tasks rank by urgency and how well they suit your languages and skills. It ranks, it never hides anything.</p>
+      <a href="production.html">See how the event is coming together &rarr;</a>
+    </div>
+  </div>
+</div>
+</div>
+
+</main></div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="_proto.js"></script>
+</body>
+</html>

@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barrio Support (today's layout, prototype) - Humans</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/tokens.css">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/site.css">
+<link rel="stylesheet" href="_proto.css">
+</head>
+<body>
+<header>
+  <nav class="navbar navbar-expand navbar-dark mb-3">
+    <a class="navbar-brand" href="index.html"><img src="../../../../../src/Humans.Web/wwwroot/img/logo.svg" alt="" aria-hidden="true"> Humans</a>
+    <div class="navbar-links">
+      <ul class="navbar-nav">
+        <li class="nav-item"><a class="nav-link active" href="team-page.html">Teams</a></li>
+        <li class="nav-item"><a class="nav-link" href="get-involved.html">Get involved</a></li>
+        <li class="nav-item"><a class="nav-link" href="production.html">Production</a></li>
+        <li class="nav-item"><a class="nav-link" href="#">Calendar</a></li>
+        <li class="nav-item"><a class="nav-link" href="#">Shifts</a></li>
+      </ul>
+    </div>
+    <div class="d-flex align-items-center gap-2"><span class="d-none d-md-inline text-white small">Sunny</span><span class="avatar you">SU</span></div>
+  </nav>
+</header>
+
+<div class="container main-content">
+<main role="main" class="pb-3">
+
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="#">Teams</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Barrio Support</li>
+  </ol>
+</nav>
+
+<div class="row">
+<!-- ============ MAIN COLUMN ============ -->
+<div class="col-lg-8">
+
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h4 class="mb-0">Barrio Support</h4>
+      <div class="d-flex gap-2 align-items-center">
+        <span class="pill">Department</span>
+        <span class="pill gold" data-levels="1"><i class="fa-solid fa-user"></i> You: contributor</span>
+        <span class="pill gold" data-levels="2"><i class="fa-solid fa-user-check"></i> You: holder &middot; 2 tasks</span>
+        <span class="pill gold" data-levels="3"><i class="fa-solid fa-compass"></i> You: coordinator</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="card-text">We help barrios get on the map and onto the grid: placement, power, safety basics, and a warm welcome for newcomers. We meet every other Thursday and anyone is welcome to listen in or help out.</p>
+      <div class="d-flex flex-wrap gap-2">
+        <a href="#tasks" class="btn btn-primary btn-lg">See what needs doing <i class="fa-solid fa-arrow-down ms-1"></i></a>
+        <button class="btn btn-outline-secondary btn-lg" data-follow><i class="fa-regular fa-bell me-1"></i>Follow</button>
+      </div>
+      <p class="small text-muted mt-3 mb-0" data-levels="0">New here? You don't need to join anything. Pick up a task, or just take part and see.</p>
+    </div>
+  </div>
+
+  <!-- ---- Tasks ---- -->
+  <div class="card mb-4" id="tasks">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span>Tasks</span>
+      <ul class="nav nav-pills small">
+        <li class="nav-item"><button class="btn btn-sm btn-outline-secondary active me-1" data-tab="list" data-group="views"><i class="fa-solid fa-list me-1"></i>List</button></li>
+        <li class="nav-item"><button class="btn btn-sm btn-outline-secondary me-1" data-tab="board" data-group="views"><i class="fa-solid fa-table-columns me-1"></i>Board</button></li>
+        <li class="nav-item"><button class="btn btn-sm btn-outline-secondary me-1" data-tab="timeline" data-group="views"><i class="fa-solid fa-chart-gantt me-1"></i>Timeline</button></li>
+        <li class="nav-item"><button class="btn btn-sm btn-outline-secondary" data-tab="calendar" data-group="views"><i class="fa-solid fa-calendar-days me-1"></i>Calendar</button></li>
+      </ul>
+    </div>
+
+    <!-- LIST -->
+    <div data-panel="list" data-group="views">
+      <div class="px-3 py-2 border-bottom d-flex flex-wrap gap-2 align-items-center small">
+        <span class="pill info">Open <strong>6</strong></span>
+        <span class="pill">Fits me <strong>3</strong></span>
+        <span class="pill danger">Critical <strong>2</strong></span>
+        <span class="pill warn">Understaffed <strong>1</strong></span>
+        <span class="ms-auto text-muted">Understaffed first &rarr; critical &rarr; best fit &rarr; soonest</span>
+      </div>
+      <ul class="task-list">
+
+        <li class="task-row is-critical">
+          <div>
+            <a href="task.html" class="title">Coordinate barrio placement requests</a>
+            <div class="mt-1 d-flex flex-wrap gap-2">
+              <span class="badge crit crit-critical">Critical</span>
+              <span class="pill danger"><i class="fa-solid fa-triangle-exclamation"></i> Understaffed &middot; needs 2</span>
+              <span class="pill gold" title="Generated by the production calendar; dates follow it"><i class="fa-solid fa-calendar-check"></i> From production calendar</span>
+            </div>
+            <div class="meta">
+              <span class="slots"><span class="dot filled"></span><span class="dot gap"></span><span class="dot"></span> 1 of 3 &middot; needs 2</span>
+              <span><i class="fa-regular fa-clock me-1"></i>~12 h</span>
+              <span><i class="fa-regular fa-calendar me-1"></i>1 Mar &rarr; 15 Apr &middot; Placement &amp; power</span>
+              <span class="tag">placement</span><span class="tag">spanish</span>
+              <span class="fit"><i class="fa-solid fa-circle-check"></i>Fits you: speaks Spanish</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-outline-primary btn-sm" data-levels="0-2">Ask to pick up</button>
+            <button class="btn btn-outline-secondary btn-sm" data-levels="3"><i class="fa-solid fa-user-plus me-1"></i>Nominate someone</button>
+            <small class="text-muted">A coordinator confirms</small>
+          </div>
+        </li>
+
+        <li class="task-row is-critical">
+          <div>
+            <a href="task.html" class="title">Review barrio power plans</a>
+            <div class="mt-1 d-flex flex-wrap gap-2">
+              <span class="badge crit crit-critical">Critical</span>
+              <span class="pill warn"><i class="fa-solid fa-lock"></i> Blocked &middot; waits on &ldquo;Confirm event map zones&rdquo; (Production)</span>
+            </div>
+            <div class="meta">
+              <span class="slots"><span class="dot filled"></span><span class="dot"></span> 1 of 2 &middot; needs 1</span>
+              <span><i class="fa-regular fa-clock me-1"></i>~8 h</span>
+              <span><i class="fa-regular fa-calendar me-1"></i>15 Mar &rarr; 30 Apr</span>
+              <span class="tag">power</span><span class="tag">electrics</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-outline-primary btn-sm" data-levels="0-2">Ask to pick up</button>
+            <button class="btn btn-outline-secondary btn-sm" data-levels="3"><i class="fa-solid fa-user-plus me-1"></i>Nominate someone</button>
+          </div>
+        </li>
+
+        <li class="task-row is-critical subtask">
+          <div>
+            <a href="task.html" class="title">Collect power forms from barrios</a>
+            <div class="mt-1 d-flex flex-wrap gap-2">
+              <span class="pill">Subtask of &ldquo;Review barrio power plans&rdquo;</span>
+              <span class="pill warn">Unclaimed</span>
+            </div>
+            <div class="meta"><span class="slots"><span class="dot gap"></span> 0 of 1</span><span><i class="fa-regular fa-clock me-1"></i>~3 h</span><span class="fit"><i class="fa-solid fa-circle-check"></i>Good first task</span></div>
+          </div>
+          <div class="actions"><button class="btn btn-outline-primary btn-sm">Ask to pick up</button></div>
+        </li>
+
+        <li class="task-row is-important">
+          <div>
+            <a href="task.html" class="title">Draft the barrio guide</a>
+            <div class="mt-1 d-flex flex-wrap gap-2">
+              <span class="badge crit crit-important">Important</span>
+              <span class="pill flag-sole warn" data-levels="3"><i class="fa-solid fa-user"></i> Only you hold this &mdash; find someone to share it</span>
+            </div>
+            <div class="meta">
+              <span class="slots"><span class="dot filled"></span> 1 of 2 &middot; needs 1</span>
+              <span class="d-inline-flex align-items-center gap-1" data-levels="0-2"><span class="avatar sm">WR</span>Wren</span>
+              <span class="d-inline-flex align-items-center gap-1" data-levels="3"><span class="avatar sm you">SU</span>You</span>
+              <span><i class="fa-regular fa-clock me-1"></i>~10 h</span><span class="tag">writing</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-outline-primary btn-sm" data-levels="0-2">Ask to pick up</button>
+            <button class="btn btn-outline-warning btn-sm" data-levels="3"><i class="fa-solid fa-hand me-1"></i>Ask for help</button>
+          </div>
+        </li>
+
+        <li class="task-row is-nice">
+          <div>
+            <a href="task.html" class="title">Run the barrio welcome call</a>
+            <div class="mt-1 d-flex flex-wrap gap-2">
+              <span class="badge crit crit-nice">Nice to have</span>
+              <span class="pill ok"><i class="fa-solid fa-door-open"></i> Open to anyone already in this team</span>
+            </div>
+            <div class="meta">
+              <span class="slots"><span class="dot filled"></span><span class="dot" data-levels="0-1"></span><span class="dot filled" data-levels="2-3"></span> <span data-levels="0-1">1 of 2</span><span data-levels="2-3">2 of 2</span></span>
+              <span class="avatar-stack"><span class="avatar sm">MO</span><span class="avatar sm you" data-levels="2-3">SU</span></span>
+              <span><i class="fa-regular fa-clock me-1"></i>~2 h / month</span><span class="tag">welcome</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-outline-primary btn-sm" data-levels="0-1">Ask to pick up</button>
+            <span class="pill ok" data-levels="2-3"><i class="fa-solid fa-check"></i> You hold this</span>
+            <button class="btn btn-link btn-sm text-muted p-0" data-levels="2-3">Release</button>
+          </div>
+        </li>
+
+        <li class="task-row is-important" style="opacity:.82">
+          <div>
+            <a href="task.html" class="title">Manage barrios</a>
+            <div class="mt-1 d-flex flex-wrap gap-2">
+              <span class="badge crit crit-important">Important</span>
+              <span class="pill gold"><i class="fa-solid fa-key"></i> Grants: manage barrios</span>
+              <span class="pill"><i class="fa-solid fa-user-shield"></i> Always confirmed by a coordinator</span>
+            </div>
+            <div class="meta"><span class="slots"><span class="dot filled"></span><span class="dot filled"></span><span class="dot filled"></span> 3 of 3 &middot; full</span><span class="tag">standing</span></div>
+          </div>
+          <div class="actions"><button class="btn btn-outline-secondary btn-sm" disabled>Full</button></div>
+        </li>
+
+        <li class="task-row is-standing">
+          <div>
+            <a href="task.html" class="title">Take part in Barrio Support</a>
+            <div class="mt-1 d-flex flex-wrap gap-2"><span class="pill">Standing &middot; open &middot; unlimited</span></div>
+            <div class="meta"><span>Come along, listen in, help where you can. No commitment, no extra access.</span><span class="text-muted">14 people</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary btn-sm" data-levels="0-1">Take part</button>
+            <span class="pill ok" data-levels="2-3"><i class="fa-solid fa-check"></i> You take part</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- BOARD -->
+    <div data-panel="board" data-group="views" class="vis-hidden p-3">
+      <div class="board">
+        <div class="board-col"><h6>To do <span>2</span></h6>
+          <div class="board-card n">Run the barrio welcome call<small>Moss</small></div>
+          <div class="board-card c">Collect power forms<small>Unclaimed &middot; subtask</small></div>
+        </div>
+        <div class="board-col"><h6>In progress <span>2</span></h6>
+          <div class="board-card c">Coordinate barrio placement requests<small>Fern &middot; needs 1 more</small></div>
+          <div class="board-card i">Draft the barrio guide<small>Wren</small></div>
+        </div>
+        <div class="board-col"><h6>Waiting <span>1</span></h6>
+          <div class="board-card c">Review barrio power plans<small>Waiting on &ldquo;Confirm event map zones&rdquo; &middot; check-in 12 Feb</small></div>
+        </div>
+        <div class="board-col"><h6>Done <span>1</span></h6>
+          <div class="board-card n">Welcome pack design<small>Sunny &middot; Aug 2026</small></div>
+        </div>
+      </div>
+      <p class="small text-muted mt-2 mb-0">Holders and coordinators drag cards between columns. Statuses shown are the five built-in categories; a team could relabel them.</p>
+    </div>
+
+    <!-- TIMELINE -->
+    <div data-panel="timeline" data-group="views" class="vis-hidden p-3">
+      <div class="tl">
+        <div class="head first" style="grid-column:1;grid-row:1">2027</div>
+        <div class="head" style="grid-column:2;grid-row:1">Jan</div><div class="head" style="grid-column:3;grid-row:1">Feb</div>
+        <div class="head" style="grid-column:4;grid-row:1">Mar</div><div class="head" style="grid-column:5;grid-row:1">Apr</div>
+        <div class="head" style="grid-column:6;grid-row:1">May</div><div class="head" style="grid-column:7;grid-row:1">Jun</div>
+        <div class="head" style="grid-column:8;grid-row:1">Jul</div><div class="head" style="grid-column:9;grid-row:1">Aug</div>
+
+        <div class="rowlabel" style="grid-column:1;grid-row:2"><em>Phases</em></div>
+        <div class="phase" style="grid-column:2/4;grid-row:2">Planning</div>
+        <div class="phase" style="grid-column:4/6;grid-row:2">Placement &amp; power</div>
+        <div class="phase" style="grid-column:6/8;grid-row:2">Build</div>
+        <div class="phase" style="grid-column:8/9;grid-row:2">Event</div>
+        <div class="phase" style="grid-column:9/10;grid-row:2">Strike</div>
+
+        <div class="rowlabel" style="grid-column:1;grid-row:3"><span class="diamond" style="width:.6rem;height:.6rem"></span> Needs submitted</div>
+        <div class="diamond" style="grid-column:4;grid-row:3;justify-self:start;margin-left:.6rem" title="Production reporting, due 1 Mar"></div>
+
+        <div class="rowlabel" style="grid-column:1;grid-row:4">Placement requests</div>
+        <div class="bar c" style="grid-column:4/6;grid-row:4"></div>
+
+        <div class="rowlabel" style="grid-column:1;grid-row:5"><span>Event map zones <span class="pill">Production</span></span></div>
+        <div class="bar ghost" style="grid-column:2/4;grid-row:5" title="Predecessor"></div>
+
+        <div class="rowlabel" style="grid-column:1;grid-row:6"><span>Power plans<br><span class="dep">&#8627; waits on Event map zones</span></span></div>
+        <div class="bar i" style="grid-column:4/6;grid-row:6"></div>
+
+        <div class="rowlabel" style="grid-column:1;grid-row:7">Barrio guide</div>
+        <div class="bar i" style="grid-column:3/6;grid-row:7"></div>
+
+        <div class="rowlabel" style="grid-column:1;grid-row:8">Build week site plan</div>
+        <div class="bar n" style="grid-column:6/8;grid-row:8"></div>
+
+        <div class="rowlabel" style="grid-column:1;grid-row:9">Welcome calls</div>
+        <div class="bar n" style="grid-column:2/9;grid-row:9;opacity:.55"></div>
+      </div>
+      <p class="small text-muted mt-2 mb-0">Windows follow the production calendar's phases. Hatched bars are tasks in other teams this team waits on.</p>
+    </div>
+
+    <!-- CALENDAR -->
+    <div data-panel="calendar" data-group="views" class="vis-hidden p-4 text-center text-muted">
+      <i class="fa-solid fa-calendar-days fa-2x mb-2"></i>
+      <p class="mb-0">Calendar view comes later. Tasks you hold with dates would appear on your personal calendar feed.</p>
+    </div>
+  </div>
+
+  <!-- ---- Past meetings ---- -->
+  <div class="card mb-4" data-levels="1-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>Past meetings &amp; notes</span><a href="#" class="small">Team handbook &middot; 7 pages</a>
+    </div>
+    <ul class="list-group list-group-flush">
+      <li class="list-group-item d-flex justify-content-between"><span><strong>15 Oct</strong> &mdash; Power forms, welcome call rota, early-entry list</span><a href="#" class="small">Notes</a></li>
+      <li class="list-group-item d-flex justify-content-between"><span><strong>1 Oct</strong> &mdash; Placement process for 2027, map zones</span><a href="#" class="small">Notes</a></li>
+      <li class="list-group-item d-flex justify-content-between"><span><strong>17 Sep</strong> &mdash; Wrap-up of the 2026 event</span><a href="#" class="small">Notes</a></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ SIDE COLUMN ============ -->
+<div class="col-lg-4">
+
+  <div class="card mb-4">
+    <div class="card-header">Contact point</div>
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-3">
+        <span class="avatar lg">JU</span>
+        <div><strong>Juniper</strong><div class="small text-muted">Talk to Juniper about this team &middot; ES, EN</div></div>
+      </div>
+      <div class="d-grid gap-2 mt-3">
+        <a href="#" class="btn btn-outline-primary btn-sm"><i class="fa-regular fa-comment me-1"></i>Message Juniper</a>
+        <a href="#" class="small text-center"><i class="fa-regular fa-envelope me-1"></i>barrio-support@nobodies.team</a>
+      </div>
+      <p class="small text-muted mt-3 mb-0" data-levels="2-3">Held through the <em>Contact point</em> task &mdash; <a href="task.html">see who holds it</a>.</p>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center"><span>Next meeting</span><span class="pill info">Open to everyone</span></div>
+    <div class="card-body">
+      <div class="fw-semibold"><i class="fa-regular fa-calendar me-1"></i>Thu 29 Oct &middot; 19:00 CET</div>
+      <div class="small text-muted mb-2">Online &mdash; link shown to signed-in humans</div>
+      <div class="small text-uppercase text-muted" style="letter-spacing:.06em">Topics</div>
+      <ul class="small ps-3 mb-2">
+        <li>Placement requests: where we are</li>
+        <li>Power forms deadline</li>
+        <li>Who can take the welcome call?</li>
+      </ul>
+      <a href="#" class="small" data-levels="1-3"><i class="fa-regular fa-lightbulb me-1"></i>Suggest a topic</a>
+      <hr>
+      <div class="small fw-semibold mb-1">When should we meet on 12 Nov? <span class="pill warn ms-1">Poll open</span></div>
+      <div class="d-grid gap-1" style="grid-template-columns:1fr auto;align-items:center">
+        <span class="small">Thu 12 Nov, 18:00</span><span class="poll-cell" style="min-width:5.5rem"></span>
+        <span class="small">Thu 12 Nov, 19:30</span><span class="poll-cell" data-v="yes" style="min-width:5.5rem"></span>
+        <span class="small">Fri 13 Nov, 18:00</span><span class="poll-cell" style="min-width:5.5rem"></span>
+      </div>
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <span class="small text-muted">Click to cycle. Answers are private to you.</span>
+        <button class="btn btn-sm btn-primary">Send</button>
+      </div>
+      <p class="small text-muted mt-2 mb-0" data-levels="2-3"><i class="fa-solid fa-person-chalkboard me-1"></i>Organised by Pixel &middot; <a href="#">edit meeting</a></p>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center"><span>Timeline</span><span class="small text-muted">Event year 2027</span></div>
+    <div class="card-body">
+      <ol class="milestones">
+        <li class="phase-label"><span class="phase">Placement &amp; power &middot; 1 Mar &ndash; 30 Apr</span></li>
+        <li class="reporting">
+          <div class="fw-semibold">Placement and power needs submitted</div>
+          <div class="d-flex flex-wrap gap-1 my-1"><span class="pill gold"><i class="fa-solid fa-flag"></i> Production reporting &middot; due 1 Mar</span><span class="pill info">In progress</span></div>
+          <div class="progress mb-1" role="progressbar" aria-label="3 of 5 tasks done"><div class="progress-bar" style="width:60%"></div></div>
+          <div class="small text-muted">3 of 5 tasks done &middot; <a href="#">see tasks</a></div>
+        </li>
+        <li class="done">
+          <div class="fw-semibold">Barrio welcome packs ready</div>
+          <div class="d-flex flex-wrap gap-1 my-1"><span class="pill info"><i class="fa-solid fa-star"></i> Team reporting</span><span class="pill ok">Done</span></div>
+        </li>
+        <li class="phase-label"><span class="phase">Build &middot; May &ndash; Jun</span></li>
+        <li>
+          <div class="fw-semibold">Build week site plan agreed</div>
+          <div class="d-flex flex-wrap gap-1 my-1"><span class="pill warn"><i class="fa-solid fa-triangle-exclamation"></i> At risk &middot; waits on Event map zones (Production)</span></div>
+          <div class="progress mb-1"><div class="progress-bar warn" style="width:10%"></div></div>
+        </li>
+      </ol>
+      <p class="small text-muted mt-3 mb-0">Production reporting dates come from the production calendar and move with it. Team reporting is flagged by this team.</p>
+    </div>
+  </div>
+
+  <div class="card mb-4" data-levels="3">
+    <div class="card-header d-flex justify-content-between align-items-center"><span>Staffing</span><span class="pill gold">Coordinator</span></div>
+    <ul class="list-group list-group-flush small">
+      <li class="list-group-item d-flex justify-content-between align-items-center">1 critical task understaffed<span class="pill danger">needs 1 more</span></li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">2 pick-up requests waiting (oldest 4 days)<a href="#" class="btn btn-sm btn-outline-primary">Review</a></li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">1 task only you hold<span class="pill warn">share it</span></li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">1 task asked for help (curators notified)<a href="#" class="small">View</a></li>
+      <li class="list-group-item text-muted">Coordination: Fern (coordinator) &middot; Ash (deputy)</li>
+    </ul>
+  </div>
+
+  <div class="card mb-4" data-levels="1-3">
+    <div class="card-header">Your involvement</div>
+    <div class="card-body small">
+      <p class="mb-2" data-levels="1">You finished <strong>Welcome pack design</strong> in Aug 2026. You stay a contributor here until Aug 2027.</p>
+      <p class="mb-2" data-levels="2">You hold <strong>2 tasks</strong> here. Thanks &mdash; one of them is still short of a second pair of hands.</p>
+      <p class="mb-2" data-levels="3">You coordinate this team and hold <strong>1 task</strong>. Coordinating is about making sure every task has someone on it.</p>
+      <a href="get-involved.html" class="btn btn-outline-primary btn-sm">Find another task</a>
+      <hr>
+      <a href="#" class="text-muted"><i class="fa-regular fa-flag me-1"></i>Raise a concern</a>
+    </div>
+  </div>
+</div>
+</div>
+
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="_proto.js"></script>
+</body>
+</html>

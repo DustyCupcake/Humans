@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Navigation prototype - Humans</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/tokens.css">
+<link rel="stylesheet" href="../../../../../src/Humans.Web/wwwroot/css/site.css">
+<link rel="stylesheet" href="nav.css">
+</head>
+<body>
+<div class="env-banner">Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype &bull; Prototype</div>
+<div class="proto-bar"><div class="container d-flex flex-wrap align-items-center gap-2">
+  <span class="label">Viewing as</span>
+  <div class="btn-group" role="group">
+    <button class="btn btn-sm btn-outline-secondary" data-role-btn="volunteer">Volunteer</button>
+    <button class="btn btn-sm btn-outline-secondary" data-role-btn="coordinator">Shifts coordinator</button>
+    <button class="btn btn-sm btn-outline-secondary" data-role-btn="guideadmin">Guide admin</button>
+    <button class="btn btn-sm btn-outline-secondary" data-role-btn="admin">Admin</button>
+  </div>
+  <span class="text-muted">Fake data. Press <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> or <kbd>/</kbd> to try the go-to search.</span>
+</div></div>
+
+<div class="container main-content"><main class="pb-3">
+
+<h2 class="mb-1">Navigation &mdash; a bar that does not grow</h2>
+<p class="text-muted">Mock-up of the <a href="../../2026-10-19-navigation-design.md">navigation spec</a>. It loads Humans&rsquo; own stylesheets; the group menus, local strip, go-to search and phone tab bar are the proposals.</p>
+
+<div class="card mb-4"><div class="card-body counter">
+  <div><div class="num"><span id="cntBefore">11</span> &rarr; <span id="cntAfter">3</span></div><div class="lab">top-bar links (Admin adds one in both)</div></div>
+  <div><div class="num"><span id="cntEventsBefore">3</span> &rarr; <span id="cntEventsAfter">3</span></div><div class="lab">links in the Events menu</div></div>
+  <div><div class="num">0</div><div class="lab">admin pages in member menus (was up to 8)</div></div>
+</div></div>
+
+<!-- ============ BEFORE ============ -->
+<h4>Today</h4>
+<div class="mock before-wrap">
+  <nav class="navbar navbar-expand navbar-dark">
+    <a class="navbar-brand" href="#"><img src="../../../../../src/Humans.Web/wwwroot/img/logo.svg" alt="" aria-hidden="true"> Humans</a>
+    <div class="navbar-links"><ul class="navbar-nav">
+      <li class="nav-item"><a class="nav-link" href="#"><i class="fa-solid fa-magnifying-glass"></i></a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Barrios</a></li>
+      <li class="nav-item"><a class="nav-link active" href="#">Teams</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Calendar</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">City</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Votes</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Events &#9662;</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Rideshare</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Shifts</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Budget</a></li>
+      <li class="nav-item"><a class="nav-link" href="#">Guide</a></li>
+      <li class="nav-item" data-roles="guideadmin,admin"><a class="nav-link nav-restricted" href="#">Admin</a></li>
+    </ul></div>
+    <div class="d-flex align-items-center gap-2 ms-2"><span class="avatar">SU</span></div>
+  </nav>
+</div>
+<p class="mock-caption">Shown at 760&nbsp;px. The strip scrolls sideways whenever the links don&rsquo;t fit, and it gets one link longer for admins.</p>
+
+<!-- ============ AFTER ============ -->
+<h4>Proposed</h4>
+<div class="mock">
+  <nav class="navbar navbar-expand navbar-dark">
+    <a class="navbar-brand" href="#" title="Home"><img src="../../../../../src/Humans.Web/wwwroot/img/logo.svg" alt="" aria-hidden="true"> Humans</a>
+    <ul class="navbar-nav ms-2">
+      <li class="nav-item dropdown">
+        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown" aria-expanded="false">Get involved</a>
+        <div class="dropdown-menu group-menu">
+          <div class="entries">
+            <a class="entry" href="#"><i class="fa-solid fa-people-group"></i><div><strong>Teams</strong><span>Find your people and what they need</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-hand-holding-heart"></i><div><strong>Get involved</strong><span>Open tasks across every team</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-calendar-check"></i><div><strong>Shifts</strong><span>Browse and sign up for shifts</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-users-gear"></i><div><strong>Workgroups</strong><span>Time-bound groups with a goal</span></div></a>
+          </div>
+          <div class="foot">Not sure where to start? Try <a href="#">Get involved</a>.</div>
+        </div>
+      </li>
+      <li class="nav-item dropdown">
+        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown" aria-expanded="false">The event</a>
+        <div class="dropdown-menu group-menu">
+          <div class="entries">
+            <a class="entry" href="#"><i class="fa-solid fa-calendar-days"></i><div><strong>Calendar</strong><span>Meetings and dates</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-masks-theater"></i><div><strong>Events guide</strong><span>What&rsquo;s on, and how to submit</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-campground"></i><div><strong>Barrios</strong><span>Camps and their placement</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-map"></i><div><strong>City</strong><span>The site map</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-car-side"></i><div><strong>Rideshare</strong><span>Get there together</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-timeline"></i><div><strong>Production</strong><span>How the event is coming together</span></div></a>
+          </div>
+        </div>
+      </li>
+      <li class="nav-item dropdown">
+        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown" aria-expanded="false">Association</a>
+        <div class="dropdown-menu group-menu">
+          <div class="entries">
+            <a class="entry" href="#"><i class="fa-solid fa-check-to-slot"></i><div><strong>Votes</strong><span>Assembly and Board votes</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-coins"></i><div><strong>Budget</strong><span>Where the money goes</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-scale-balanced"></i><div><strong>Legal</strong><span>Statutes and documents</span></div></a>
+            <a class="entry" href="#"><i class="fa-solid fa-book-open"></i><div><strong>Guide</strong><span>How things work here</span></div></a>
+          </div>
+        </div>
+      </li>
+    </ul>
+    <div class="bar-right">
+      <a class="search-btn" href="#" data-open-palette aria-label="Go to"><i class="fa-solid fa-magnifying-glass"></i><span class="d-none d-md-inline">Go to&hellip;</span><kbd>Ctrl K</kbd></a>
+      <a class="nav-link nav-restricted" href="#" data-roles="guideadmin,admin" style="color:var(--h-parchment)!important;font-size:.85rem;letter-spacing:.08em;text-transform:uppercase">Admin</a>
+      <div class="dropdown">
+        <a href="#" class="d-flex align-items-center gap-2 text-decoration-none" data-bs-toggle="dropdown" aria-expanded="false"><span class="avatar">SU</span></a>
+        <ul class="dropdown-menu dropdown-menu-end profile-dropdown-menu">
+          <li class="px-3 py-2"><div class="fw-semibold small">Sunny</div><div class="text-muted" style="font-size:.75rem">sunny@example.org</div></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><a class="dropdown-item d-flex gap-2 align-items-center" href="#"><i class="fa-solid fa-user"></i>Profile</a></li>
+          <li><a class="dropdown-item d-flex gap-2 align-items-center" href="#"><i class="fa-solid fa-shield-halved"></i>Consent &amp; privacy</a></li>
+          <li><a class="dropdown-item d-flex gap-2 align-items-center" href="#"><i class="fa-solid fa-language"></i>Language</a></li>
+          <li><a class="dropdown-item d-flex gap-2 align-items-center" href="#"><i class="fa-solid fa-circle-info"></i>About</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><a class="dropdown-item d-flex gap-2 align-items-center text-danger" href="#"><i class="fa-solid fa-right-from-bracket"></i>Sign out</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+  <div class="local-nav" id="localStrip"></div>
+  <div class="p-4" style="min-height:11rem">
+    <div class="small text-muted mb-2">Pretend you are on:
+      <button class="btn btn-sm btn-outline-secondary ms-1" data-strip="teams">Teams</button>
+      <button class="btn btn-sm btn-outline-secondary" data-strip="shifts">Shifts</button>
+      <button class="btn btn-sm btn-outline-secondary" data-strip="events">Events</button>
+      <button class="btn btn-sm btn-outline-secondary" data-strip="tasks">Get involved</button>
+    </div>
+    <div class="proto-note">Section pages carry their own strip under the bar. Admin-only pages (event moderation, shift dashboards for coordinators) appear only for the people who can open them, and event moderation lives in Admin, not in a member menu. Change the viewer above to see it change.</div>
+  </div>
+</div>
+<p class="mock-caption">Three group menus, search and avatar &mdash; for everyone. Admin appears only for people with admin access. Click a group to open it.</p>
+
+<!-- ============ HOME + PHONE ============ -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-7">
+    <h4>Home keeps the long tail</h4>
+    <div class="card"><div class="card-body">
+      <div class="small text-uppercase text-muted mb-2" style="letter-spacing:.06em">Pinned</div>
+      <div class="d-flex flex-wrap gap-2 mb-3"><a class="chip" href="#"><i class="fa-solid fa-thumbtack"></i>Teams</a><a class="chip" href="#"><i class="fa-solid fa-thumbtack"></i>My shifts</a><a class="chip" href="#"><i class="fa-solid fa-thumbtack"></i>Calendar</a><a class="chip text-muted" href="#"><i class="fa-solid fa-plus"></i>Pin a page</a></div>
+      <div class="small text-uppercase text-muted mb-2" style="letter-spacing:.06em">Recent</div>
+      <div class="d-flex flex-wrap gap-2 mb-3"><a class="chip" href="#"><i class="fa-regular fa-clock"></i>Coordinate barrio placement requests</a><a class="chip" href="#"><i class="fa-regular fa-clock"></i>Barrio Support</a><a class="chip" href="#"><i class="fa-regular fa-clock"></i>Budget</a></div>
+      <div class="small text-uppercase text-muted mb-2" style="letter-spacing:.06em">Things to do</div>
+      <ul class="list-group list-group-flush small mb-0">
+        <li class="list-group-item d-flex justify-content-between">Confirm your shift on 12 Nov<a href="#">Open</a></li>
+        <li class="list-group-item d-flex justify-content-between">2 tasks need a decision from you<a href="#">Open</a></li>
+      </ul>
+    </div></div>
+    <p class="small text-muted mt-2">Pins and recents live here and in the go-to search, so a section never needs a top-level link just to be findable. <span id="lastGo" class="ms-2 text-success"></span></p>
+  </div>
+  <div class="col-lg-5">
+    <h4>On a phone</h4>
+    <div class="phone mx-auto">
+      <div class="topbar"><img src="../../../../../src/Humans.Web/wwwroot/img/logo.svg" alt=""><span class="brand">Humans</span><i class="fa-solid fa-magnifying-glass ico"></i><span class="avatar" style="width:26px;height:26px">SU</span></div>
+      <div class="body">
+        <div class="fw-semibold mb-1" style="font-family:var(--h-font-display);font-size:1.2rem">Good evening, Sunny</div>
+        <div class="small text-muted mb-2">Pinned</div>
+        <div class="d-flex flex-wrap gap-2 mb-3"><span class="chip">Teams</span><span class="chip">My shifts</span><span class="chip">Calendar</span></div>
+        <div class="card"><div class="card-body py-2 small">Confirm your shift on 12 Nov</div></div>
+      </div>
+      <div class="sheet">
+        <h6>Get involved</h6>
+        <a href="#"><i class="fa-solid fa-people-group"></i><div><strong>Teams</strong><span>Find your people and what they need</span></div></a>
+        <a href="#"><i class="fa-solid fa-hand-holding-heart"></i><div><strong>Get involved</strong><span>Open tasks across every team</span></div></a>
+        <a href="#"><i class="fa-solid fa-calendar-check"></i><div><strong>Shifts</strong><span>Browse and sign up</span></div></a>
+        <a href="#"><i class="fa-solid fa-users-gear"></i><div><strong>Workgroups</strong><span>Time-bound groups with a goal</span></div></a>
+      </div>
+      <div class="tabs">
+        <a href="#"><i class="fa-solid fa-house"></i>Home</a>
+        <a href="#" class="on"><i class="fa-solid fa-hand-holding-heart"></i>Get involved</a>
+        <a href="#"><i class="fa-solid fa-campground"></i>The event</a>
+        <a href="#"><i class="fa-solid fa-landmark"></i>Association</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="mb-4"><a class="btn btn-outline-primary" href="mobile.html"><i class="fa-solid fa-mobile-screen me-1"></i>Phone comparison: where the important links go &rarr;</a></p>
+
+<h5>Open questions this mock-up makes visible</h5>
+<ul class="small">
+  <li><strong>Group names and membership.</strong> Are &ldquo;Get involved / The event / Association&rdquo; the right words for this community? Rideshare and Calendar could sit in either of the first two.</li>
+  <li><strong>Home.</strong> The logo is home; should there also be a labelled Home item?</li>
+  <li><strong>Pins.</strong> Browser-only is simplest; account-level pins follow you across devices but add export and erasure work.</li>
+  <li><strong>Click or hover</strong> to open a group menu (click is shown; it works on touch and for keyboard users).</li>
+</ul>
+<p class="proto-note">Serve the repository root with <code>python3 -m http.server</code> and open this page over <code>http://127.0.0.1:8765/docs/superpowers/specs/2026-10-19-tasks-teams-navigation-prototypes/navigation/</code>; opening the file directly loses the repository stylesheets.</p>
+
+</main></div>
+
+<!-- Go-to search -->
+<div class="palette-backdrop" id="palette" role="dialog" aria-modal="true" aria-label="Go to">
+  <div class="palette">
+    <div class="input"><i class="fa-solid fa-magnifying-glass text-muted"></i><input id="paletteInput" placeholder="Go to a page, team, task or person&hellip;" autocomplete="off"><kbd>Esc</kbd></div>
+    <div class="results" id="paletteResults" aria-live="polite"></div>
+    <div class="foot"><span><kbd>&uarr;</kbd> <kbd>&darr;</kbd> move</span><span><kbd>Enter</kbd> open</span><span>Only pages you can open are listed</span></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="nav.js"></script>
+</body>
+</html>
