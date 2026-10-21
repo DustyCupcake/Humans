@@ -8,8 +8,12 @@ A proposal to start a conversation, not a finished design. Nothing here is imple
 |---|---|
 | [Tasks module](../2026-10-19-tasks-module-design.md) | Tasks, slots, openness, endorsement, capabilities (task-gated permissions), milestones, production calendar, Get involved, production view |
 | [Teams on tasks](../2026-10-19-teams-on-tasks-design.md) | How Teams becomes the first host: coordination, contact point, meetings, derived membership, migration |
+| [Meetings](../2026-10-19-meetings-design.md) | One capability for team, workgroup, project and community meetings: agenda, scheduling poll, attendance, notes |
+| [Shifts improvements](../2026-10-19-shifts-improvements-design.md) | A starting list: attendance confirmation, bail timing, history for the track record, and how Shifts meets the new model |
 | [Concerns](../2026-10-19-concerns-design.md) | Raising and handling concerns, mediation, deselection panels — data and tasks, not hardcoded |
 | [Navigation](../2026-10-19-navigation-design.md) | A top bar that does not grow, go-to search, bottom tab bar on phones, page actions that stay in reach |
+
+Facts about Humans in these specs were checked on 2026-10-19 against `nobodies-collective/Humans` main at commit `238416555`, which this branch was cut from. The Requests section of the Tasks spec is a first proposal and much less explored than the rest.
 
 Each spec marks its undecided points as **[OPEN]**. The specs touch areas reserved for the maintainer (new public surface, the capability and privilege model, dropping role tables), so they are meant for discussion before any implementation.
 

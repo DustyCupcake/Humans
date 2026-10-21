@@ -14,14 +14,14 @@ Non-goals: replacing Shifts rotas, replacing Camps' own roles (`CampRoleDefiniti
 
 - **Containers** are teams (departments and sub-teams). Hidden and sensitive flags are passed to Tasks, which honours them in every org view.
 - **Staffing task** is the team's **coordination** task.
-- **Standing tasks** every team gets at creation:
+- **Standing tasks** every team gets at creation (a small sub-team can inherit its department's coordination and switch the rest on only when it wants a landing page **[OPEN: proposed, to limit overhead for many small teams; what counts as a team is a community definition the tool does not need to settle]**):
   - **Coordination** — see below.
   - **Contact point** (`team.contact`).
   - **Take part** — open, unlimited, no capability; the front door for people with no specific task, and where migrated members land.
   - **Concern panel representative** — the seat the team fills on deselection panels ([Concerns](2026-10-19-concerns-design.md)).
 - **Reactions:** taking a slot creates the `TeamMember` row; the last slot ending starts the contributor window, after which the row ends (below).
 - **System teams** (Volunteers, Coordinators, Board, Asociados, Colaboradors, Barrio Leads) stay automatic. Board governance roles become Board tasks, held only by existing sync-managed members, as today.
-- **Workgroups do not affect teams.** Nothing a workgroup host does creates team membership, involvement or Coordinators-team entries.
+- **Workgroups do not affect teams.** Nothing a workgroup host does creates team membership, access or Coordinators-team entries; the only bridge is the opt-in affiliation lens, which makes a holder an *associate* (invitations only).
 
 ## Team page by involvement
 
@@ -50,6 +50,7 @@ Involvement is derived, never a roster:
 - *Contributor* — finished a task here within the contributor window **[OPEN: default 12 months]**.
 - *Holder* — holds an active slot.
 - *Coordinator / Deputy* — holds a coordination slot.
+- *Associate* — holds a task homed elsewhere (a working group or another team) that is **affiliated** with this team. An associate is invited to the team's meetings and sees what a contributor sees, but is not a member: no `TeamMember` row, no Google or Drive access, no authority.
 
 Membership follows: taking any slot creates the `TeamMember` row; it persists while the person holds a slot or is a contributor, then ends. There is no join request and no manual add; coordinators confirm or nominate into slots.
 
@@ -61,14 +62,14 @@ Three separate jobs, never merged: the **coordinator** makes sure every task has
 
 - **Slots:** primary (coordinators) and secondary (deputies) counts are team settings, default one of each; no minimum is enforced. An empty coordination task is Critical and flagged (Tasks: Gap cover).
 - **Powers — staffing only:** create, edit and cancel the team's (and its sub-teams') tasks; confirm or decline pick-ups; nominate and remove holders; see staffing gaps. Deputies have the same powers and join the Coordinators system team. Nothing else is implicit; sub-team slots do not join the Coordinators system team.
-- **Confirmation by endorsement.** The coordination task is *Endorsed*. Endorser classes: the team's involved pool, other teams' coordinators and deputies, Board, TeamsAdmin; each team sets a required count per class (zero allowed). Brand-new team (empty pool): the threshold reduces to outside endorsers. **[OPEN — not fully certain: exact thresholds, whether Board/TeamsAdmin appointment alone suffices. The selection process needs refining before build; the engine is in the Tasks spec.]**
+- **Confirmation by endorsement.** The coordination task is *Endorsed*; the Tasks spec's Selection section describes the vacancy notice, candidacy and endorsement. Endorser classes: the team's involved pool, other teams' coordinators and deputies, and holders of the designated org-level task, each with a required count (zero allowed); they are settings, so the community can add the Board or TeamsAdmin if it wants. Appointment, when endorsement does not settle it, is by holders of the Tasks spec's `tasks.appoint` capability (seeded on a Recruitment task), not by the Board. A brand-new team's threshold reduces to outside endorsers. Candidates earn endorsements by talking to people, above all at the team meeting. When several candidates clear the threshold they share the slots — deputies have the same powers, so coordinator and deputy are internal labels. **[OPEN — not fully certain: thresholds, whether appointment by the Recruitment task's holders alone suffices. The selection process needs refining before build.]**
 - **Standing until released.** No term; each new year holders re-affirm without endorsement or confirmation.
 - **Leaving:** by release, by not re-affirming, or by a panel decision ([Concerns](2026-10-19-concerns-design.md)).
 - **Governance:** being a coordinator anywhere puts you in the Coordinators system team, which scopes legal documents; now only coordination-slot holders of departments qualify. Review which documents rely on it.
 
 ## Capabilities Teams declares
 
-`team.contact`, `team.page`, `team.meetings`, `team.email`, `earlyentry.manage` (with EarlyEntry). `team.resources` is GoogleIntegration's. Catalog and rules (floor, nothing implicit, checking) are in the Tasks spec.
+`team.contact`, `team.page`, `team.email`, `earlyentry.manage` (with EarlyEntry). `team.resources` is GoogleIntegration's and `meetings.organise` is Meetings'. Catalog and rules (floor, nothing implicit, checking) are in the Tasks spec.
 
 - **Team email.** Google Group membership comes from holders of `team.email` (default confirmed), not all members. Teams already feeds the group through `IGoogleGroupMembershipSource`; only its source list changes.
 - **Resources.** Drive and Group resource access follows `team.resources`, not membership.
@@ -77,14 +78,11 @@ Three separate jobs, never merged: the **coordinator** makes sure every task has
 
 ## Meetings
 
-A team meeting is an invitation to the community, so it is first-class, not a link to a calendar. Holders of `team.meetings` organise it; the task is featured when unfilled.
-
-- **Meeting** — Teams-owned: title, date/time and timezone, location or link, topics (Markdown), status (Scheduled / Held / Cancelled), notes (Markdown, afterwards). The organiser posts each meeting; "copy last meeting" seeds the next. Automatic recurrence is later.
-- **Topics** are visible to everyone who can see the team page. Anyone signed in may suggest a topic; the organiser curates. **[OPEN: suggestions in v1?]**
-- **Notes archive** — past meetings and notes listed for any signed-in human; sensitive teams limit notes to holders and coordinators.
-- **Community calendar** — Teams contributes public meetings to Calendar through its existing contributor seam (as Workgroups does), so Calendar's open-edit policy never lets someone alter a meeting's time.
-- **Scheduling poll** — the organiser proposes candidate slots; any signed-in human answers yes / if-needed / no. Answers are blind: respondents see only their own; the organiser sees counts per slot **[OPEN: or blind to the organiser too, as in Orchard]**. Confirming a slot sets the meeting time and notifies the team's involved pool and everyone who responded through Notifications. Responses are deleted a set time after confirmation **[OPEN: default 30 days]** and covered by export and erasure. A grid-style availability picker is later.
-- Audited: meeting created/edited/cancelled, notes published, poll opened/confirmed.
+Team meetings use the shared [Meetings](2026-10-19-meetings-design.md) capability with the team as owner: agenda, scheduling poll, attendance, notes archive and the community-calendar feed all live there. Teams adds only:
+- **Organiser.** The `meetings.organise` capability, scoped to the team, is held through a task the team can create from a template; an unfilled one is featured on Get involved, because a meeting is the invitation.
+- **Involved pool.** Members and associates are invited by default.
+- **The next-meeting card** on the team page, from Meetings, and the contact-point pointer when none is posted.
+- **Sensitive teams** limit meeting notes to holders and coordinators.
 
 ## Documentation
 
@@ -115,14 +113,14 @@ The team page composes its milestones from Tasks: date, computed progress, both 
 
 ## Ownership
 
-- Teams keeps `teams`, `team_members`, early-entry grants, meetings, notes, polls and handbook pages with their revisions (`team_doc_pages`, `team_doc_revisions`); tasks, slots, candidacies, milestones and capability grants move to Tasks. `TeamRoleDefinition` / `TeamRoleAssignment` retire after migration.
+- Teams keeps `teams`, `team_members`, early-entry grants and handbook pages with their revisions (`team_doc_pages`, `team_doc_revisions`); tasks, slots, candidacies, milestones and capability grants move to Tasks. `TeamRoleDefinition` / `TeamRoleAssignment` retire after migration.
 - Public surface: `ITeamService` keeps its signatures; `IsUserCoordinatorOfTeamAsync` and siblings mean staffing authority only and read the coordination task through Tasks.
 - Next meeting reads Teams' own meetings; Workgroups meetings stay on workgroup pages **[OPEN: leaning keep separate]**.
 
 ## Surfaces checklist
 
 - **Cultures:** team page, meetings and the timeline are member-facing → full resx set, six cultures. Coordinator/TeamAdmin screens exempt.
-- **Authorization + negatives:** visitors cannot see holders' contact detail beyond the contact point; hidden/sensitive teams excluded from org views; sensitive team notes limited; only `team.meetings` holders post meetings; non-holders cannot edit handbook pages and cannot see signed-in or holder pages they are not entitled to; hidden-team pages are invisible and sensitive-team pages are limited; coordinators lose implicit page, resource, budget and shift powers.
+- **Authorization + negatives:** visitors cannot see holders' contact detail beyond the contact point; hidden/sensitive teams excluded from org views; sensitive team notes limited; only `meetings.organise` holders post meetings; non-holders cannot edit handbook pages and cannot see signed-in or holder pages they are not entitled to; hidden-team pages are invisible and sensitive-team pages are limited; coordinators lose implicit page, resource, budget and shift powers.
 - **Audit:** membership changes remain audited with the acting slot decision; meetings and polls as above.
 - **GDPR:** poll responses and authored handbook revisions join the export path; erasure keeps handbook content and removes attribution; membership slices follow the new derivation.
 - **Navigation:** team page → tasks, meetings, timeline; `/Teams` → Get involved and Production (Tasks pages); each with a way back.
@@ -133,10 +131,7 @@ The team page composes its milestones from Tasks: date, computed progress, both 
 
 | Considered | Decision |
 |---|---|
-| Calendar events as team meetings | Rejected: Calendar is open-edit; meetings need organiser authority, topics, notes and polls. Teams owns meetings and feeds Calendar through the existing contributor seam. |
-| Orchard scheduling polls | Adopted in reduced form (candidate slots, blind answers); grid picker later. |
-| Surveys for polls | Rejected: surveys collect answers, not confirmed times. |
-| Workgroups' meeting/minutes pattern | Adopted as the model for Teams meetings; Workgroups itself untouched. |
+| Per-team meetings implementation | Rejected: meetings are a shared capability (see the Meetings spec). |
 | Extend `TeamRoleDefinition` into tasks | Rejected: tasks live in the Tasks module. |
 | Guide section for team documentation | Rejected: Guide renders repo markdown written by developers; team pages are member-authored, versioned data. |
 | Orchard's Documentation module | Adopted in reduced form, scoped per team: revisioned pages, question pages, an index over task notes. A community-wide wiki is not proposed. |

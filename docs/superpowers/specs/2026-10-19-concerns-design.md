@@ -48,7 +48,7 @@ A decision that removes someone from a slot is made by a panel convened per case
 
 ## Who defines all this
 
-Categories, routes, checklists, panel seats, quorum and timings are editable by holders of `concerns.configure`, an org-scoped capability hosted by a container a Board member designates once and then staffed like any task. Every change is audited and visible. **[OPEN: whether configuration changes need Board approval or an endorsed configure task is enough.]**
+Categories, routes, checklists, panel seats, quorum and timings are editable by holders of `concerns.configure`, an org-scoped capability hosted by a container an Admin designates once and then staffed like any task. Every change is audited and visible. **[OPEN: whether configuration changes need Board approval or an endorsed configure task is enough.]**
 
 **Hardcoded minimum:** a concern has a subject, category, log and decision; the subject is informed; recusal is invisible; a removal needs a recorded decision. Everything else is data.
 
