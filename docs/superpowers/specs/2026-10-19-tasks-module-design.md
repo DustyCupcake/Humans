@@ -200,6 +200,7 @@ A task may grant capabilities to its **primary-slot holders**. Holding the slot 
   | `shifts.manage` | Create and modify the team's rotas and shifts | team | Shifts |
   | `volunteers.manage` | Confirm/refuse/voluntell sign-ups, without editing shifts | team | Shifts |
   | `tasks.curate` | Feature tasks on Get involved; work the needs-attention queue | org | Tasks |
+  | `tasks.plan` | Import plans (tasks, tags, dependencies) into the container | container | Tasks |
   | `tasks.appoint` | Appoint holders to Endorsed tasks when endorsement does not settle it | org | Tasks |
   | `production.manage` | Edit the production calendar | org | Calendar |
   | `concerns.handle`, `.mediate`, `.consent-response`, `.configure` | See [Concerns](2026-10-19-concerns-design.md) | org | Concerns |
@@ -248,6 +249,19 @@ When one team needs specific pieces of information from other teams — power ne
 - **Engine.** The lean is to extend the Surveys section (authoring, question types, translations, named responses, completion ledger) with a mode where a team is the respondent, not to add a third form system. Today running a survey needs Board or Admin approval; that gate would move to a capability held through a task (for example `forms.run`), team-scoped for people in your own container and org-scoped for community-wide sends. It needs audiences for "a team's involved people" and "holders of tasks in a project or production item", and a completion read for tasks. **[OPEN: extend Surveys or build a small separate module. The test from Orchard: does the platform act on the answers, or does a human just read them? Here a human reads.]**
 - **Debriefs** use the same pattern: a short standard form per team, plus an optional survey for everyone involved. Results feed the year-end report and are hidden below a minimum number of answers in small teams. A "suggest a task for next year" question creates a task proposal in that team. **[OPEN: sign-off blocks sending or only advises; a team answers once, submitted by any holder or only the contact point.]**
 
+## Plans and the API (first proposal)
+
+**[OPEN — a first proposal, not yet explored in depth.]** People, and an LLM helping them, will want to draft a whole project's tasks, tags and dependencies and get them in properly, without typing each one. The pieces are a portable **plan file**, a **validate, preview, confirm** import, and an API on the existing machine surface.
+
+- **Plan file.** A versioned, portable description of a set of tasks: each task's home (by team or working-group name), title, description, criticality, effort, needed and capacity, tags, requirements, window and milestone, subtasks, dependencies (by keys local to the file), project and affiliation. Dates are relative or calendar references if the plan is meant to be cloned, and absolute otherwise. The same format serves roll-forward (cloning a year is an export of last year followed by an import into the next, as in Orchard's task packs), generated production-item templates and sharing a plan with another community.
+- **Nothing goes live unreviewed.** An import is staged. The platform resolves names to teams, phases and tags and shows what it could not (create a tag, map to an existing one, leave out); it checks for dependency cycles and impossible dates; it refuses anything that grants a capability, sets an endorsement threshold or changes a staffing task. The person reviews the preview and **confirms in the app**. An LLM can draft and stage a plan but cannot confirm it.
+- **Authority.** Importing is its own capability, `tasks.plan`, scoped to a container and held through a task like any other (a staffing holder can take it directly in their own container, per the capability floor). A holder's plan creates tasks directly only in containers where they hold it; tasks the plan puts in anyone else's container arrive as proposals in that container's queue (see Proposing a task). Everything is audited as an import by that person, with a plan id, and a staged or untouched plan can be withdrawn whole.
+- **Re-import.** Keys local to the file make a re-import update the tasks it created, unless someone has since claimed or changed them, in which case the conflicts are shown.
+- **API.** Endpoints on Backdoor, the machine surface, where one personal key authenticates as one human and acts with exactly that human's rights and nothing more: read a *planning context* (the containers the person can plan in or propose to, tag vocabulary, phases and production items with their dates, projects, existing tasks for dependencies, the plan schema and limits); validate a plan without writing; stage a plan; read or withdraw a staged plan; read tasks and their dependencies for refinement. Confirming is not on the API.
+- **Built for an LLM.** Plain field names, error messages that name the field and suggest a fix, a size limit, idempotent staging, and a worked example in the docs. A thin MCP wrapper over the same endpoints could be offered later; it would live outside Humans. The in-app Agent could use the same context to help a coordinator draft a plan.
+- **Data protection.** The planning context carries no personal data beyond what is public to the key owner: holder counts and roles, not names or contact details. A person who hands any of it to an external model is making that choice, and the key's audit records use of the API. No personal data about members is needed to plan work.
+- **Where it lives.** Tasks owns the plan format, staging and import logic. Backdoor exposes thin endpoints over Tasks' contracts. The app gets "Import a plan" (upload or paste), a preview page and an export action. **Production-item templates are plan files**, so the production calendar can be edited and shared as plans. **[OPEN: format versioning.]**
+
 ## Production view
 
 `/Tasks/Production` — every member: phases as the spine (and, as a second grouping, projects with their tasks across teams), each showing production reporting milestones across visible containers with per-phase progress (done ÷ applicable, overdue list) and containers without staffing coordination. **Team reporting** is a second, toggleable layer, off by default. Read only. Calendar links to it; Calendar owns the data. *(Moved here from Teams now that milestones are Tasks'.)*
@@ -259,6 +273,7 @@ When a new event year is created (Settings change notification):
 - **One-off event tasks** roll forward with empty slots.
 
 **Roll-forward.** A staffing-task holder (or a `production.manage` holder) picks event-scoped tasks and milestones from a past year and rolls them into a target event: preview, then confirm.
+- The roll-forward is the plan file's export and import, so cloning and imported plans share one preview.
 - Tasks copy with empty primary slots, Active; secondary holders carry as suggestions. Standing tasks are not cloned, and cloning follows the home (see Projects, working groups and cloning). Generated production tasks regenerate from the production calendar.
 - Offset milestones and windows recompute against the target's gate-opening date; absolute dates are listed for new values; calendar references re-point to the target year's items.
 - The target `EventSettings` row must already exist.
@@ -302,7 +317,7 @@ When a new event year is created (Settings change notification):
 | Keep role definitions beside tasks | Rejected: no roles remain. |
 | Shifts rotas as tasks | Rejected: rotas are recurring and never "done". |
 | Calendar events as milestones | Rejected: milestones carry progress and reporting. Calendar supplies phases and production dates. |
-| Orchard packs | Rejected: roll-forward is a direct in-app copy. |
+| Orchard task packs | Adopted in reduced form as the plan file: roll-forward, templates and LLM-drafted plans share one format and one preview (see Plans and the API). |
 | New capability registry in Tasks | Rejected: sections declare capabilities via DI, as Issues does for queues. |
 | Extend `/Teams/Roster` | Accepted: becomes Get involved. |
 | ClickUp subtasks, dependencies, followers, forms-to-tasks, views, custom statuses | Adapted: one subtask level, finish-to-start only, follow without membership, forms become "propose a task", statuses fixed categories with optional labels. |
