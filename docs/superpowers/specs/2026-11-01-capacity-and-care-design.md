@@ -62,10 +62,12 @@ Separate from the track record, which with its drops and bails feeds no leaderbo
 - **Opt-in, off by default, revocable at once.** Opting in shares the same breakdown the person sees themselves, to signed-in members, under their display name.
 - **No individual ranking.** Ranking by volume rewards exactly what this spec tries to prevent.
 - **Barrio challenge.** Members who opted in count toward their barrio, through the self-declared per-season `CampMember` affiliation.
-  - **Metric: the share of opted-in members who reached X hours** in the period. It is capped: going past X adds nothing, so nobody is pushed to overwork. A person counts as reaching X at the lower of X and their own declared availability.
-  - **X is set by the community per event**, and a phase such as strike can have its own, smaller X. It makes a fun, voluntary alternative to a mandatory strike commitment.
+  - **Two separate boards:** **off-site tasks** (before the event) and **on-site shifts**. Each has its own X, its own hours and its own availability basis. A phase such as strike can have its own, smaller X on the shifts board. It makes a fun, voluntary alternative to a mandatory strike commitment.
+  - **Two figures per board.** *Participating*: the share of opted-in members who contributed anything at all. *Above X*: the share of **eligible** opted-in members who reached X hours in the period.
+  - **Eligible means declared availability of at least X for that board's period.** Tasks board: hours per week across the pre-event weeks. Shifts board: available on-site days times productive hours per day. People with little or no declared availability are **not credited for being above X and are not counted in its denominator**; they count only in *Participating*. Declaring availability is what makes someone count in *Above X*.
+  - **Capped.** Going past X adds nothing, so nobody is pushed to overwork.
   - **Hours** are exact for shifts and the owner's estimate for tasks (time tracking is rejected in Tasks).
-  - **The barrio's total hours** show beside the percentage, since a percentage alone hides big contributors.
+  - **The barrio's total hours** show beside the percentages on each board, since a percentage alone hides big contributors.
   - **Aggregates only, never a breakdown by person.** A barrio's figure is hidden below a minimum number of opted-in members **[OPEN: the minimum]**.
 - **Community-wide totals** ("together we did...") need no opt-in beyond the same aggregation and carry the least pressure.
 - **Breadth recognition** (a new team, a clean handover, covering a critical gap) as a gentler complement. **[OPEN.]**
@@ -83,7 +85,7 @@ Separate from the track record, which with its drops and bails feeds no leaderbo
 - **Audit:** nudges, raised check-ins, opt-in changes, declaration visibility changes.
 - **GDPR:** export contributors and erasure for the declaration, size preference, decline reasons, check-in flags and opt-in settings.
 - **Navigation:** "How I like to help" from the profile; My contribution from the member dashboard card; the recognition page from the community area.
-- **Tests:** `tests/Humans.Tasks.Tests` — load by window overlap, secondary slots and crew hours excluded, bands, visibility, decline-reason effects, check-in trigger excluding "busy", modal on every claim path, browse never filtered, barrio metric cap and minimum-members rule, opt-out removal.
+- **Tests:** `tests/Humans.Tasks.Tests` — load by window overlap, secondary slots and crew hours excluded, bands, visibility, decline-reason effects, check-in trigger excluding "busy", modal on every claim path, browse never filtered, barrio boards (tasks and shifts separate), eligibility excluding low or missing availability from *Above X* but not *Participating*, the cap and the minimum-members rule, opt-out removal.
 - **Invariant docs:** `Tasks.md`, and `Shifts.md` for the availability read.
 
 ## Reuse audit
