@@ -6,14 +6,16 @@ A proposal to start a conversation, not a finished design. Nothing here is imple
 
 | Spec | What it covers |
 |---|---|
-| [Tasks module](../2026-10-19-tasks-module-design.md) | Tasks, slots, openness, endorsement, capabilities (task-gated permissions), milestones, production calendar, Get involved, production view |
+| [Tasks module](../2026-10-19-tasks-module-design.md) | Tasks, slots, openness, endorsement, capabilities (task-gated permissions), milestones, production calendar, Get involved, production view, crew need and lead-by date for on-site tasks |
 | [Teams on tasks](../2026-10-19-teams-on-tasks-design.md) | How Teams becomes the first host: coordination, contact point, meetings, derived membership, migration |
 | [Meetings](../2026-10-19-meetings-design.md) | One capability for team, workgroup, project and community meetings: agenda, scheduling poll, attendance, notes |
-| [Shifts improvements](../2026-10-19-shifts-improvements-design.md) | A starting list: attendance confirmation, bail timing, history for the track record, and how Shifts meets the new model |
+| [Shifts improvements](../2026-10-19-shifts-improvements-design.md) | A starting list: attendance confirmation, bail timing, history for the track record, on-site presence for lead nomination, rota sizing from tasks, rest-day nudges, and how Shifts meets the new model |
+| [Capacity and care](../2026-11-01-capacity-and-care-design.md) | Yearly availability on the profile, capacity bands, decline reasons and person-first check-ins, load-aware suggestions, My contribution, opt-in barrio boards for tasks and shifts |
+| [Build and strike planning](../2026-11-01-build-and-strike-planning-design.md) | On-site tasks as a planning tool: leads in slots, crew need that sizes daily shifts, lead-by date, presence-based lead nomination pool, day sheet |
 | [Concerns](../2026-10-19-concerns-design.md) | Raising and handling concerns, mediation, deselection panels — data and tasks, not hardcoded |
 | [Navigation](../2026-10-19-navigation-design.md) | A top bar that does not grow, go-to search, bottom tab bar on phones, page actions that stay in reach |
 
-Facts about Humans in these specs were checked on 2026-10-19 against `nobodies-collective/Humans` main at commit `238416555`, which this branch was cut from. The Requests section of the Tasks spec is a first proposal and much less explored than the rest.
+Facts about Humans in these specs were checked on 2026-10-19 against `nobodies-collective/Humans` main at commit `238416555`, which this branch was cut from. The Capacity and care and Build and strike planning specs (2026-11-01) were checked against the same commit, and draw on Orchard's availability and contribution design and on a strike guide written by past strike leads. The Requests section of the Tasks spec is a first proposal and much less explored than the rest.
 
 Each spec marks its undecided points as **[OPEN]**. The specs touch areas reserved for the maintainer (new public surface, the capability and privilege model, dropping role tables), so they are meant for discussion before any implementation.
 
@@ -32,6 +34,8 @@ python3 -m http.server 8765        # from the repository root
 - `…/navigation/mobile.html` — today's phone layout next to the proposed one
 
 Opening the files directly in a browser loses the stylesheets.
+
+The prototypes predate the Capacity and care and Build and strike planning specs. Not yet drawn: the "How I like to help" profile page, the over-capacity confirmation, My contribution, the barrio boards, the lead nomination pool, and the strike day sheet.
 
 ## Screenshots
 
